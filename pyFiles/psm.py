@@ -440,18 +440,19 @@ def write_appended_dripPSM_to_pin(fid, psm, psm0,
     """ header: (1)SpecId
                 (2)Label
                 (3)ScanNr
-                (4)Insertions
-                (5)Deletions
-                (6)NumObsPeaksScored
-                (7)NumTheoPeaksUsed
-                (8)SumObsIntensities
-                (9)SumScoredMzDist
-                (10)User input PIN field 1
-                (11)User input PIN field 2
+                (4)dripScore
+                (5)Insertions
+                (6)Deletions
+                (7)NumObsPeaksScored
+                (8)NumTheoPeaksUsed
+                (9)SumObsIntensities
+                (10)SumScoredMzDist
+                (11)User input PIN field 1
+                (12)User input PIN field 2
                 ...
-                (9+N)User input PIN field N
-                (9+N+1)Peptide
-                (9+N+2)Protein
+                (10+N)User input PIN field N
+                (10+N+1)Peptide
+                (10+N+2)Protein
     """
     num_ins, num_dels, num_non_ins, num_non_dels, sum_scored_intensities, sum_scored_mz_dists = psm.calculate_drip_features(drip_means)
     # create SpecId string
@@ -469,6 +470,8 @@ def write_appended_dripPSM_to_pin(fid, psm, psm0,
                 fid.write("-1\t")
         elif f=='ScanNr':
                 fid.write("%d\t" % psm.scan)
+        elif f=='dripScore':
+                fid.write("%f\t" % psm.score)
         elif f=='Insertions':
                 fid.write("%d\t" % num_ins)
         elif f=='Deletions':
@@ -1414,6 +1417,7 @@ def append_to_percolator_pin(targets, decoys,
 
     # Create list of fields to write out
     fields = ["SpecId","Label","ScanNr",
+              "dripScore", 
               "Insertions","Deletions", 
               "NumObsPeaksScored", "NumTheoPeaksUsed",
               "SumObsIntensities", "SumScoredMzDist"]
