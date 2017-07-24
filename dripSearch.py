@@ -698,7 +698,7 @@ def make_drip_data_highres(args, data,
             make_master_parameters(args, ion_dict, ions)
 
     args.mean_file = meanFile
-    args.gauss_file = gassFile
+    args.gauss_file = gaussFile
     args.mixture_file = mixtureFile
     args.collection_file = collectionFile
 
