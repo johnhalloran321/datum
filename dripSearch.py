@@ -697,6 +697,11 @@ def make_drip_data_highres(args, data,
             args.collection_file = collectionFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
             make_master_parameters(args, ion_dict, ions)
 
+    args.mean_file = meanFile
+    args.gauss_file = gassFile
+    args.mixture_file = mixtureFile
+    args.collection_file = collectionFile
+
     # serialize candidate peptide data with fields:
     # (1) - peptide type: 1 = target, 2 = decoy, 3 = recalibrate decoy
     # (2) - peptide string

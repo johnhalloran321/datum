@@ -7,7 +7,7 @@
 # See COPYING or http://opensource.org/licenses/OSL-3.0
 
 # adjust the number of threads to be used for all tests in the variable below
-NUMTHREADS=4
+NUMTHREADS=15
 
 #################################################################
 ################## Low-resolution MS2 searches
@@ -171,6 +171,7 @@ function dripSearchHighres {
     	--nterm-peptide-mods-spec 'X+229.16293' \
     	--monoisotopic-precursor true \
     	--recalibrate True \
+	--peptide-buffer 10000000 \
     	--decoys True
 
     python -OO dripSearch.py \
@@ -180,8 +181,10 @@ function dripSearchHighres {
 	--high-res-ms2 true \
 	--precursor-window-type 'ppm' \
 	--precursor-filter 'True' \
-	--spectra data/malariaTest.ms2 \
+	--spectra /home/jthalloran/ms2Spectra/malaria/malaria.ms2 \
 	--output dripSearch-malariaTest-output
+	# --spectra data/malariaTest.ms2 \
+	# --spectra /home/jthalloran/ms2Spectra/malaria/malaria.ms2 \
 }
 
 ############################################
@@ -287,17 +290,22 @@ function clusterTest {
 # dripExtractHighResVarMods (run dripSearchHighresVarMods first)
 # clusterTest
 
-# traing and test low-res MS2
-trainTest
+# # traing and test low-res MS2
+# trainTest
 
-# run several tests
-runTests=( dripSearchHighres \
-               dripSearchHighresVarMods \
-               dripExtractHighResVarMods )
+# # run several tests
+# runTests=( dripSearchHighres \
+#                dripSearchHighresVarMods \
+#                dripExtractHighResVarMods )
 
-# loop through array of tests
-for dripTest in ${runTests[@]}
-do
-    echo $dripTest
-    $dripTest
-done
+# # loop through array of tests
+# for dripTest in ${runTests[@]}
+# do
+#     echo $dripTest
+#     $dripTest
+# done
+
+# dripExtractLowRes
+# dripSearchHighresVarMods
+# dripExtractHighResVarMods
+dripSearchHighres

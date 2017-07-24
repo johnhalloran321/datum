@@ -1171,6 +1171,7 @@ def candidate_binarydb_spectra_generator(args,
     sid_visited = set([])
 
     for sid, c, pm in sidChargePreMass:
+        print sid, c, pm
         # if buffered_spec > spectra_buffer: # clear memory
         #     d_out.clear()
         #     t_out.clear()
@@ -1235,6 +1236,9 @@ def candidate_binarydb_spectra_generator(args,
         while run:
             # read in buffer of peptides
             l = tfid.read(stst.size * buff)
+            if not l:
+                run = 0
+                break
             start_ind = 0
             end_ind = stst.size
             t_l_buffered = ''
@@ -1290,6 +1294,9 @@ def candidate_binarydb_spectra_generator(args,
         while run:
             # read in buffer of peptides
             l = dfid.read(stst.size * buff)
+            if not l:
+                run = 0
+                break
             start_ind = 0
             end_ind = stst.size
             d_l_buffered = ''
@@ -1345,6 +1352,9 @@ def candidate_binarydb_spectra_generator(args,
             while run:
                 # read in buffer of peptides
                 l = recal_dfid.read(stst.size * buff)
+                if not l:
+                    run = 0
+                    break
                 start_ind = 0
                 end_ind = stst.size
                 recal_d_l_buffered = ''

@@ -2240,7 +2240,12 @@ def create_recalibrateDecoys_from_binarydb(decoyFile, targets, recalibrateDecoyF
                             num_buffered +=1
 
                             # create second set of decoys for recalibration
-                            d = create_reversed_decoy(t, eq_mass_dict[t], kta, eq_mass_dict, decoy_eq_mass_set)
+                            if decoy_format == 'shuffle':
+                                d = create_shuffled_decoy(t, eq_mass_dict[t], kta, eq_mass_dict, decoy_eq_mass_set)
+                            elif decoy_format == 'reverse':
+                                d = create_reversed_decoy(t, eq_mass_dict[t], kta, eq_mass_dict, decoy_eq_mass_set)
+                            else: 
+                                d = []
                             if d:
                                 decoy_eq_mass_set.add(d[1])
                                 peptide_decoys2.append(d)
@@ -2275,7 +2280,12 @@ def create_recalibrateDecoys_from_binarydb(decoyFile, targets, recalibrateDecoyF
                     num_buffered +=1
 
                 # create second set of decoys for recalibration
-                d = create_reversed_decoy(t, eq_mass_dict[t], kta, eq_mass_dict, decoy_eq_mass_set)
+                if decoy_format == 'shuffle':
+                    d = create_shuffled_decoy(t, eq_mass_dict[t], kta, eq_mass_dict, decoy_eq_mass_set)
+                elif decoy_format == 'reverse':
+                    d = create_reversed_decoy(t, eq_mass_dict[t], kta, eq_mass_dict, decoy_eq_mass_set)
+                else:
+                    d = []
                 if d:
                     decoy_eq_mass_set.add(d[1])
                     peptide_decoys2.append(d)
