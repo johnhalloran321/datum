@@ -1147,7 +1147,8 @@ def candidate_binarydb_spectra_generator(args,
     d_out = {}
 
     spectra_app = []
-    spectra_buffer = 1000
+    # spectra_buffer = 1000
+    spectra_buffer = args.peptide_buffer
 
     buffered_spec = 0
     

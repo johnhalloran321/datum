@@ -171,7 +171,7 @@ function dripSearchHighres {
     	--nterm-peptide-mods-spec 'X+229.16293' \
     	--monoisotopic-precursor true \
     	--recalibrate True \
-	--peptide-buffer 10000000 \
+	--peptide-buffer 10000 \
     	--decoys True
 
     python -OO dripSearch.py \
