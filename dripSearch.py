@@ -691,16 +691,20 @@ def make_drip_data_highres(args, data,
         if ion_dict:
             ion_dict_per_sid[s.spectrum_id] = ion_dict
             # make collection per spectrum
-            args.mean_file = meanFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
-            args.gauss_file = gaussFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
-            args.mixture_file = mixtureFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
-            args.collection_file = collectionFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
-            make_master_parameters(args, ion_dict, ions)
+            mf = meanFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+            gf = gaussFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+            mixf = mixtureFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+            cf = collectionFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+            ####################### note: args.max_obs_mass updated in below function
+            # max_obs_mass designates the maximum fragment mass, calculated as the max value against all 
+            # fragment spectra
+            make_master_parameters(args, mf, gf, mixf, cf,
+                                   ion_dict, ions)
 
-    args.mean_file = meanFile
-    args.gauss_file = gaussFile
-    args.mixture_file = mixtureFile
-    args.collection_file = collectionFile
+    # args.mean_file = meanFile
+    # args.gauss_file = gaussFile
+    # args.mixture_file = mixtureFile
+    # args.collection_file = collectionFile
 
     # serialize candidate peptide data with fields:
     # (1) - peptide type: 1 = target, 2 = decoy, 3 = recalibrate decoy
@@ -743,11 +747,9 @@ def make_drip_data_highres(args, data,
         peptide_pfile = create_pfile(pfile_dir,
                                      'pep-lengths-sid%d.pfile' % (sid), 
                                      0, 1)
-            
         spectrum_pfile = create_pfile(pfile_dir,
                                       'spectrum-sid%d.pfile' % (sid),
                                       2,0)
-
         # write observation file; assume we've filtered spectra of interest before this,
         # so that we don't have to check whether we should create this observation file.
         # Though, for individual peptide observations, we still don't know what relevant 
@@ -858,6 +860,326 @@ def make_drip_data_highres(args, data,
     # close streams openend per ms2 file
     pep_db_per_spectrum.close()
     return sids
+
+def make_drip_data_highres_multiThread(args, data, 
+                                      mods, ntermMods, ctermMods,
+                                      varMods, ntermVarMods, ctermVarMods):
+    """Generate test data .pfile. and create job scripts for cluster use (if num_jobs > 1).
+       Decrease number of calls to GMTK by only calling once per spectrum
+       and running for all charge states in one go.
+
+       inputs:
+       args - output of parsed input arguments (struct)
+       data - instance of generator pyFiles.shard_spectra.candidate_spectra_generator, which is a dict with fields:
+              "spectra" - spectra in shard
+              "target" - target PSMs in shard
+              "decoy" - decoy PSMs in shard (if args.decoys set to true)
+              "minMz" - minimum mz in dataset
+              "maxMz" - maximum mz in dataset
+       mods - dict whose keys are amino acids and correspond to offsets
+              for modifications denoted in args.mods_spec
+       ntermMods - similar as above but for n-terminal mods and args.nterm-peptide-mods-spec
+       ctermMods - similar to ntermMods but for the c-terminal
+
+
+       outputs:
+       sids - list of scan IDs for the generated data
+
+       pre:
+       - args has been created by parse_args(), directories have been created/checked for existence,
+         relevant arguments have been processed (Booleans, mods, digesting enzyme, etc)
+       - data has been created by candidate_spectra_generate() and contains the above mentioned fields
+
+       post:
+       - args.{mean_file, gauss_file, mixture_file, collection_file} will all be adjusted
+       - args.max_mass will be updated to the size of the number of unique theoretical fragmentation locations (floating point if high-res ms2, integers if low-res ms2)
+    """
+
+    vitStr0 = "gmtkViterbi -strFile " + args.structure_file \
+        + " -triFile " + args.structure_file + ".trifile -ni1 0 -nf1 2 -ni2 1 -nf2 0" \
+        + " -ckbeam " + str(args.beam) \
+        + " -sdiffact1 rl -sdiffact2 rl -fdiffact2 rl" \
+        + " -inputMasterFile " + args.master_file + " -inputTrainableParameters trained.params -failOnZeroClique F"
+
+    if(args.normalize != 'filter0'):
+        preprocess = pipeline(args.normalize)
+
+    # Load the pickled representation of this shard's data
+    # prune multiples
+    visited_spectra = set([])
+    spectra = []
+    # spectra = data['spectra']
+    for s in data['spectra']:
+        if s.spectrum_id not in visited_spectra:
+            spectra.append(s)
+            visited_spectra.add(s.spectrum_id)
+
+    target = data['target']
+    decoy = data['decoy']
+    if args.recalibrate:
+        recal_decoy = data['recal_decoy']
+    else:
+        recal_decoy = []
+
+    pfile_dir = os.path.join(args.output_dir, args.obs_dir)
+
+    # Write file names to
+    print >> sys.stderr, 'Writing testing data to %s' % args.output_dir
+    
+    if(os.path.isfile(os.path.join(args.output_dir, 'inverted-pepDBperSid.txt'))):
+        pep_db_per_spectrum = open(args.output_dir+'/inverted-pepDBperSid.txt', 'a')
+    else:
+        pep_db_per_spectrum = open(args.output_dir+'/inverted-pepDBperSid.txt', 'w')
+        pep_db_per_spectrum.write('sid\tnumPeps\n')
+
+    meanFile = args.mean_file
+    gaussFile = args.gauss_file
+    mixtureFile = args.mixture_file
+    collectionFile = args.collection_file
+
+    theo_spec_dict = {}
+    validcharges = args.charges
+
+    pool = multiprocessing.Pool(processes = args.num_threads)
+
+    for s in spectra:
+        dripSearch_highres_specThread(args, preprocess, s, target, decoy, recal_decoy,
+                                      meanFile, gaussFile, mixtureFile, collectionFile,
+                                      vitStr0, validcharges,
+                                      mods, ntermMods, ctermMods,
+                                      varMods, ntermVarMods, ctermVarMods)
+
+def dripSearch_highres_specThread(args, preprocess, s, target, decoy, recal_decoy,
+                                  meanFile, gaussFile, mixtureFile, collectionFile,
+                                  vitStr0, validcharges,
+                                  mods, ntermMods, ctermMods,
+                                  varMods, ntermVarMods, ctermVarMods):
+    preprocess(s)
+    ion_dict = {}
+    num_candidates = 0
+    psm_db_dict = []
+    for charge in validcharges:
+        if (s.spectrum_id, charge) not in target:
+            continue
+        tl = target[(s.spectrum_id,charge)]
+        dl = decoy[(s.spectrum_id,charge)]
+        num_candidates = len(tl) + len(dl)
+
+        if args.recalibrate:
+            recal_dl = recal_decoy[(s.spectrum_id,charge)]
+            num_candidates += len(recal_dl)
+
+        max_target_theo_peaks = 0
+        max_decoy_theo_peaks = 0
+        # check if we're filtering theoretical peaks outside observed m/z values
+        if args.filt_theo_peaks:
+            if args.per_spectrum_mz_bound:
+                minMz = s.mz[0]
+                maxMz = s.mz[-1]
+            else:
+                minMz = args.mz_lb
+                maxMz = args.mz_ub
+        # calculate maximum decoy and target theoretical spectra cardinalities
+        # serialized data:
+        #    peptide[0] = peptide mass (float)
+        #    peptide[1] = peptide string (string of max_length character, possibly many of which are null)
+        #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
+        #    peptide[3] = nterm_flanking (character)
+        #    peptide[4] = cterm_flanking (character)
+        #    peptide[5] = binary string deoting variable modifications
+        for tp in tl:
+            p = tp[1].split('\x00')[0]
+            if varMods or ntermVarMods or ctermVarMods:
+                varModSequence = tp[5][:len(p)]
+                theoSpecKey = p + varModSequence
+                bNy = interleave_b_y_ions_var_mods(Peptide(p), charge, 
+                                                   mods, ntermMods, ctermMods,
+                                                   varMods, ntermVarMods, ctermVarMods,
+                                                   varModSequence)
+            else:
+                theoSpecKey = p
+                bNy = interleave_b_y_ions(Peptide(p), charge, 
+                                          mods, ntermMods, ctermMods)
+            # numBY_dict_per_sid[s.spectrum_id, theoSpecKey] = len(bNy)
+            psm_db_dict.append(PSM(theoSpecKey, 0, s.spectrum_id, 't', charge, len(bNy)))
+            if args.filt_theo_peaks:
+                filter_theoretical_peaks(bNy, minMz, maxMz)
+            theo_spec_dict[s.spectrum_id, theoSpecKey] = bNy
+
+            for i in bNy:
+                ion_dict[i] = 1
+        for dp in dl:
+            d = dp[1].split('\x00')[0]
+            if varMods or ntermVarMods or ctermVarMods:
+                varModSequence = dp[5][:len(d)]
+                theoSpecKey = d + varModSequence
+                bNy = interleave_b_y_ions_var_mods(Peptide(d), charge, 
+                                                   mods, ntermMods, ctermMods,
+                                                   varMods, ntermVarMods, ctermVarMods,
+                                                   varModSequence)
+            else:
+                theoSpecKey = d
+                bNy = interleave_b_y_ions_var_mods(Peptide(d), charge, 
+                                                   mods, ntermMods, ctermMods)
+            # numBY_dict_per_sid[s.spectrum_id, theoSpecKey] = len(bNy)
+            psm_db_dict.append(PSM(theoSpecKey, 0, s.spectrum_id, 'd', charge, len(bNy)))
+            if args.filt_theo_peaks:
+                filter_theoretical_peaks(bNy, minMz, maxMz)
+            theo_spec_dict[s.spectrum_id, theoSpecKey] = bNy
+            for i in bNy:
+                ion_dict[i] = 1
+
+        if args.recalibrate:
+            for recal_dp in recal_dl:
+                recal_d = recal_dp[1].split('\x00')[0]
+                if varMods or ntermVarMods or ctermVarMods:
+                    varModSequence = recal_dp[5][:len(recal_d)]
+                    theoSpecKey = recal_d + varModSequence
+                    bNy = interleave_b_y_ions_var_mods(Peptide(recal_d), charge, 
+                                                       mods, ntermMods, ctermMods,
+                                                       varMods, ntermVarMods, ctermVarMods,
+                                                       varModSequence)
+                else:
+                    theoSpecKey = recal_d
+                    bNy = interleave_b_y_ions_var_mods(Peptide(recal_d), charge, 
+                                                       mods, ntermMods, ctermMods)
+                        
+                # numBY_dict_per_sid[s.spectrum_id, theoSpecKey] = len(bNy)
+                psm_db_dict.append(PSM(theoSpecKey, 0, s.spectrum_id, 'r', charge, len(bNy)))
+                if args.filt_theo_peaks:
+                    filter_theoretical_peaks(bNy, minMz, maxMz)
+                theo_spec_dict[s.spectrum_id, theoSpecKey] = bNy
+                for i in bNy:
+                    ion_dict[i] = 1
+
+    if not ion_dict:
+        return 0
+
+    ions = list(ion_dict.iterkeys())
+    ions.sort()
+    for i, ion in enumerate(ions):
+        ion_dict[ion] = i
+    maxFragmentMass = len(ions)
+
+    mf = meanFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+    gf = gaussFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+    mixf = mixtureFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+    cf = collectionFile[:-4] + '-sid' + str(s.spectrum_id) + '.txt'
+    make_master_parameters(args, mf, gf, mixf, cf, ion_dict, ions)
+
+    # num_candidates = 0
+    # for charge in validcharges:
+    #     if (sid, charge) in target:
+    #         num_candidates += len(target[sid, charge])
+    #     if (sid, charge) in decoy:
+    #         num_candidates += len(decoy[sid, charge])
+    #     if args.recalibrate:
+    #         if (s.spectrum_id, charge) in recal_decoy:
+    #             num_candidates += len(recal_decoy[s.spectrum_id, charge])
+    preprocess(s)
+    peptide_pfile = create_pfile(pfile_dir,
+                                 'pep-lengths-sid%d.pfile' % (sid), 
+                                 0, 1)
+    spectrum_pfile = create_pfile(pfile_dir,
+                                  'spectrum-sid%d.pfile' % (sid),
+                                  2,0)
+    # write observation file; assume we've filtered spectra of interest before this,
+    # so that we don't have to check whether we should create this observation file.
+    # Though, for individual peptide observations, we still don't know what relevant 
+    # charges are being searched
+    drip_spectrum_sentence(spectrum_pfile, s.mz, s.intensity)
+
+    pep_num = 0 # total peptide decision trees being written
+    pep_dt = open(os.path.join(args.output_dir, 'sid%d-iterable.dts' % (sid)), "w")
+    pep_dt.write('%d\n\n' % (num_candidates))
+
+    ran = 0
+
+    for charge in validcharges:
+        if (sid, charge) not in target:
+            continue
+        ran = 1
+        # Generate the peptide-spectrum matches.
+        tl = target[(sid,charge)]
+        dl = decoy[(sid,charge)]
+        if args.recalibrate:
+            recal_dl = recal_decoy[(sid, charge)]
+        for tp in tl:
+            pepType = 1
+            p = tp[1].split('\x00')[0]
+            if varMods or ntermVarMods or ctermVarMods:
+                varModSequence = tp[5][:len(p)]
+                theoSpecKey = p + varModSequence
+            else:
+                varModSequence = ''.join(['0'] * len(p))
+                theoSpecKey = p
+            bNy = theo_spec_dict[sid, theoSpecKey]
+            bNy = [ion_dict[bOrY] for bOrY in bNy]
+            drip_peptide_sentence(pep_dt, theoSpecKey, bNy, 
+                                  pep_num, sid, args.max_obs_mass,
+                                  peptide_pfile, True, len(bNy)-1)
+            pep_num += 1
+        for dp in dl:
+            pepType = 2
+            d = dp[1].split('\x00')[0]
+            if varMods or ntermVarMods or ctermVarMods:
+                varModSequence = dp[5][:len(d)]
+                theoSpecKey = d + varModSequence
+            else:
+                varModSequence = ''.join(['0'] * len(d))
+                theoSpecKey = d
+            bNy = theo_spec_dict[sid, theoSpecKey]
+            bNy = [ion_dict[bOrY] for bOrY in bNy]
+            drip_peptide_sentence(pep_dt, theoSpecKey, bNy, 
+                                  pep_num, sid, args.max_obs_mass,
+                                  peptide_pfile, False, len(bNy)-1)
+            pep_num += 1
+        if args.recalibrate:
+            for recal_dp in recal_dl:
+                pepType = 3
+                recal_d = recal_dp[1].split('\x00')[0]
+                if varMods or ntermVarMods or ctermVarMods:
+                    varModSequence = recal_dp[5][:len(recal_d)]
+                    theoSpecKey = recal_d + varModSequence
+                else:
+                    varModSequence = ''.join(['0'] * len(recal_d))
+                    theoSpecKey = recal_d
+                bNy = theo_spec_dict[sid, theoSpecKey]
+                bNy = [ion_dict[bOrY] for bOrY in bNy]
+                drip_peptide_sentence(pep_dt, theoSpecKey, bNy, 
+                                      pep_num, sid, args.max_obs_mass,
+                                      peptide_pfile, False, len(bNy)-1)
+                pep_num += 1
+    # gmtk files
+    vitValsFile = args.logDir + '/vitVals-sid' + currSid + '.txt'
+    dtFile = os.path.join(args.output_dir,'sid%d-iterable.dts' % (s.spectrum_id))
+    # compile dt using gmtkDTIndex
+    call(['gmtkDTindex', '-decisionTreeFiles', dtFile], 
+         stdout = stdo, stderr = stde)
+    # call gmtkViterbi
+    dtFile = os.path.join(args.output_dir, 'sid%d-iterable.dts' % (s.spectrum_id))
+    cppCommand = '\'-DITERABLE_DT=' + dtFile + \
+                 ' -DMAX_FRAGMENT_MASS=' + maxFragmentMass + \
+                 ' -DDRIP_MZ=' + mf + ' -DDRIP_GAUSSIAN_COMPONENTS=' + gf + ' -DDRIP_GAUSSIAN_MIXTURES=' + mixf + ' -DDRIP_MZ_GAUSSIANS=' + cf + '\''
+    vitStr = vitStr0 + ' -vitValsFile ' + vitValsFile \
+             + ' -of1 ' + pfile_dir + '/spectrum-sid' + currSid + '.pfile' \
+             + ' -of2 ' + pfile_dir + '/pep-lengths-sid' + currSid + '.pfile' \
+             + ' -cppCommand ' + cppCommand
+    call(shlex.split(vitStr), stdout = stdo, stderr = stde)
+    # parse output
+################################################ over here
+    td = psm.parse_drip_singleSpectrum(vitValsFile, s.spectrum_id, dripMeans, 
+                                       topMatch, sid, numPeps, 
+                                       psm_db_dict, args.recalibrate)
+    # clean up files
+    os.remove(dtFile)
+    os.remove(dtFile + '.index')
+    os.remove(vitValsFile)
+    os.remove(pfile_dir + '/spectrum-sid' + currSid + '.pfile')
+    os.remove(pfile_dir + '/pep-lengths-sid' + currSid + '.pfile')
+
+    return td
+
 
 def make_drip_data_lowres(args, data, 
                           mods, ntermMods, ctermMods,
@@ -1183,7 +1505,7 @@ def runDrip(args):
 
     try:
         # triangulate_drip(args.structure_file, args.master_file, stdo, stde)
-        triangulate_drip(args.structure_file)
+        triangulate_drip(args.structure_file, str(args.max_obs_mass))
     except:
         print "Could not create triangulate structure file %s, exitting" % args.structure_file
         exit(-1)
@@ -1220,6 +1542,7 @@ def runDrip(args):
             collection_file = collectionFile
 
         cppCommand = '\'-DITERABLE_DT=' + dtFile \
+            + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
             + ' -DDRIP_MZ=' + mean_file \
             + ' -DDRIP_GAUSSIAN_COMPONENTS=' + gauss_file \
             + ' -DDRIP_GAUSSIAN_MIXTURES=' + mixture_file \
@@ -1324,7 +1647,7 @@ def runDripCluster(args):
 
     try:
         # triangulate_drip(args.structure_file, args.master_file, stdo, stde)
-        triangulate_drip(args.structure_file)
+        triangulate_drip(args.structure_file, str(args.max_obs_mass))
     except:
         print "Could not create triangulate structure file %s, exitting" % args.structure_file
         exit(-1)
@@ -1361,6 +1684,7 @@ def runDripCluster(args):
             collection_file = collectionFile
 
         cppCommand = '\'-DITERABLE_DT=' + dtFile \
+            + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
             + ' -DDRIP_MZ=' + mean_file \
             + ' -DDRIP_GAUSSIAN_COMPONENTS=' + gauss_file \
             + ' -DDRIP_GAUSSIAN_MIXTURES=' + mixture_file \
@@ -1454,6 +1778,7 @@ if __name__ == '__main__':
     ##################################### start runDrip for multithreading
     ####################################################################################
 
+    ################### default Viterbi call
     vitStr0 = "gmtkViterbi -strFile " + args.structure_file \
         + " -triFile " + args.structure_file + ".trifile -ni1 0 -nf1 2 -ni2 1 -nf2 0" \
         + " -ckbeam " + str(args.beam) \
@@ -1498,11 +1823,16 @@ if __name__ == '__main__':
         # for data in candidate_spectra_generator(args, r,
         #                                         mods, 
         #                                         nterm_mods, cterm_mods):
+
+        makeDripFiles = True
+
+        ############ note: parallelize below
         for data in candidate_binarydb_spectra_generator(args,
                                                          mods, nterm_mods, cterm_mods,
                                                          var_mods, nterm_var_mods, cterm_var_mods):
             args.mz_lb = data['minMz']
             args.mz_ub = data['maxMz']
+            # create data
             if args.high_res_ms2:
                 spec_eval += make_drip_data_highres(args, data, 
                                                     mods, nterm_mods, cterm_mods, 
@@ -1536,9 +1866,8 @@ if __name__ == '__main__':
     except:
         print "Could not create DRIP structure file %s, exitting" % args.structure_file
         exit(-1)
-
     try:
-        triangulate_drip(args.structure_file)
+        triangulate_drip(args.structure_file, str(args.max_obs_mass))
     except:
         print "Could not create triangulate structure file %s, exitting" % args.structure_file
         exit(-1)
@@ -1554,7 +1883,7 @@ if __name__ == '__main__':
 
     # set up pool for multithreading
     pool = multiprocessing.Pool(processes = args.num_threads)
-    
+
     # add GMTK jobs to pool
     spec_dict = {} # create dictionary of spectra with sid as key, used for calculating DRIP features
     for s in spec_eval:
@@ -1575,6 +1904,7 @@ if __name__ == '__main__':
             collection_file = collectionFile
 
         cppCommand = '\'-DITERABLE_DT=' + dtFile \
+            + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
             + ' -DDRIP_MZ=' + mean_file \
             + ' -DDRIP_GAUSSIAN_COMPONENTS=' + gauss_file \
             + ' -DDRIP_GAUSSIAN_MIXTURES=' + mixture_file \

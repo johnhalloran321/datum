@@ -448,7 +448,9 @@ def create_drip_structure(highRes = False, strFile = "model.str",
     frameString +="""    variable: FRAGMENT_MASS { %m/z location of a peak in the theoretical spectrum
 """
 
-    frameString += "      type: discrete hidden cardinality %s;\n" % maxTermMass
+    # todo: replace below with macro for the max fragment mass
+    # frameString += "      type: discrete hidden cardinality %s;\n" % maxTermMass
+    frameString += "      type: discrete hidden cardinality MAX_FRAGMENT_MASS;\n"
 
     if not forcedAlignment:
         frameString +="""      conditionalparents: PEAK_POSITION(0) using DeterministicCPT("increment_fragment_mass_cpt");
@@ -525,11 +527,16 @@ def create_drip_structure(highRes = False, strFile = "model.str",
     print >> fid,  "chunk 1:1"
     fid.close()
 
-def triangulate_drip(strFile = "model.str", mtrFile = "model.mtr"):
+def triangulate_drip(strFile = "model.str", 
+                     max_fragment_mass = '20002',
+                     mtrFile = "model.mtr"):
     triFile = strFile + '.trifile'
+
+    cppCommand = '\'-DMAX_FRAGMENT_MASS=' + max_fragment_mass + '\''
 
     triStr = 'gmtkTriangulate' \
         + ' -strFile ' + strFile \
+        + ' -cppCommand ' + cppCommand \
         + ' -inputMasterFile ' + mtrFile
     try:
         os.remove(triFile)
@@ -677,12 +684,13 @@ def training_spectrum_sentence(pf, mz, intensity, dripPsm):
 
     pf.end_segment()
 
-def make_master_parameters(options, fragment_ion_dict, ions):
+def make_master_parameters(options, mf, gf, mixf, cf,
+                           fragment_ion_dict, ions):
     """Mean file and collection file."""
-    mean_file = open('%s' % options.mean_file, "w")
-    gauss_file = open('%s' % options.gauss_file, "w")
-    mixture_file = open('%s' % options.mixture_file, "w")
-    collection_file = open('%s' % options.collection_file, "w")
+    mean_file = open('%s' % mf, "w")
+    gauss_file = open('%s' % gf, "w")
+    mixture_file = open('%s' % mixf, "w")
+    collection_file = open('%s' % cf, "w")
 
     # collection file comment first
     collection_file.write('%number_of_collections collection_num name num_elements element_names\n')

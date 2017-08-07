@@ -162,17 +162,17 @@ function trainTestRecalibrate {
 ######### search high-res MS2 spectra
 ############################################
 function dripSearchHighres {
-    # digest directory
-    ./dripDigest.py  \
-    	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
-    	--min-length 7 \
-    	--custom-enzyme '[K]|[X]' \
-    	--mods-spec 'C+57.0214,K+229.16293' \
-    	--nterm-peptide-mods-spec 'X+229.16293' \
-    	--monoisotopic-precursor true \
-    	--recalibrate True \
-	--peptide-buffer 10000 \
-    	--decoys True
+    # # digest directory
+    # ./dripDigest.py  \
+    # 	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
+    # 	--min-length 7 \
+    # 	--custom-enzyme '[K]|[X]' \
+    # 	--mods-spec 'C+57.0214,K+229.16293' \
+    # 	--nterm-peptide-mods-spec 'X+229.16293' \
+    # 	--monoisotopic-precursor true \
+    # 	--recalibrate True \
+    # 	--peptide-buffer 1000 \
+    # 	--decoys True
 
     python -OO dripSearch.py \
 	--digest-dir 'dripDigest-output' \
@@ -181,8 +181,8 @@ function dripSearchHighres {
 	--high-res-ms2 true \
 	--precursor-window-type 'ppm' \
 	--precursor-filter 'True' \
-	--spectra /home/jthalloran/ms2Spectra/malaria/malaria.ms2 \
-	--output dripSearch-malariaTest-output
+	--spectra data/malariaTest.ms2 \
+	--output dripSearch-smallMalariaTest-output
 	# --spectra data/malariaTest.ms2 \
 	# --spectra /home/jthalloran/ms2Spectra/malaria/malaria.ms2 \
 }

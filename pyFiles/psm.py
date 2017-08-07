@@ -125,6 +125,11 @@ class dripPSM(object):
         self.flanking_cterm = flanking_cterm # used by dripSearch, dripExtract
         self.var_mod_sequence = var_mod_sequence # currently only used by dripSearch
         self.protein = protein
+        ############ added 2017-08-07
+        self.sum_scored_intensities = 0
+        self.sum_scored_mz_dists = 0
+        self.num_ins = 0
+        
 
         if len(self.insertion_sequence) != len(self.ion_sequence):
             raise ValueError('Sequence of fragments not equal to number of insertions')
@@ -235,6 +240,27 @@ class dripPSM(object):
 
         return num_ins, num_dels, num_non_ins, num_non_dels, \
             sum_scored_intensities, sum_scored_mz_dists
+
+    def calc_drip_features_givenS(self, drip_means, s):
+        """ Calculate drip features given means and spectrum.
+            Assumed to not store spectrum for better memory management
+        """
+        sum_scored_intensities = 0.0
+        sum_scored_mz_dists = 0.0
+        num_ins = 0
+        for intensity,mz,ins,fragment in zip(s.spectrum.intensity,
+                                             s.spectrum.mz,
+                                             self.insertion_sequence,
+                                             self.ion_sequence):
+            if not ins:
+                sum_scored_intensities += intensity
+                sum_scored_mz_dists += abs(mz - drip_means[fragment])
+            else:
+                num_ins += 1
+
+        self.sum_scored_intensities = sum_scored_intensities
+        self.sum_scored_mz_dists = sum_scored_mz_dists
+        self.num_ins = num_ins
 
     if plottingActive:
         def plot_drip_viterbi(self, plotname,
@@ -800,10 +826,10 @@ def parse_drip_segments_binDb(s, filename, dripMeans,
                 
     return sid_td_psms
 
-def parse_drip_segments(filename, dripMeans, 
-                        topMatch, sid, 
-                        currSpec, numPeps, 
-                        pepDBlist):
+def parse_drip_singleSpectrum(filename, s, dripMeans,
+                              topMatch, sid, 
+                              currSpec, numPeps, 
+                              pepDBlist, recalibrate):
     """Parse the DRIP Viterbi path output by gmtkViterbi.  This is done spectrum by spectrum where each PSM
        is created as an instance of the psm collection.namedtuple.  Although some of this namedtuple's fields
        involve lists, we only retain the top topMatch per spectrum so that we shouldn't hit any memory problems
@@ -825,6 +851,124 @@ def parse_drip_segments(filename, dripMeans,
 
     target_psms = {}
     decoy_psms = {}
+    if recalibrate:
+        recal_decoy_psms = {}
+
+    pepLookUp = open(pepDBlist, "r")
+    # header: (1)Kind (2)Peptide (3) NumBY (4) Charge
+    pepDB = [pepRow for pepRow in csv.DictReader(pepLookUp, delimiter = '\t')]
+    pepLookUp.close()
+
+    insert_curr = 0
+    count = 0
+    
+    for match in re.finditer(pattern, log, re.MULTILINE):
+        # current GMTK segment number
+        curr_segment = int(match.group('segment'))
+        # look up peptide in database
+        curr_kind = pepDB[curr_segment].kind
+        curr_pep_seq = pepDB[curr_segment].sequence
+        curr_numby = pepDB[curr_segment].other
+        curr_charge = pepDB[curr_segment].charge
+            
+        # calculate 
+        curr_frames = int(match.group('frame'))
+        curr_score = float(match.group('score'))/float(curr_frames)
+        fragments = []
+        used_peaks = {}
+        ins_sequence = []
+
+        if curr_frames != len(s.mz):
+            print "Spectrum %d number of frames does not match up with number of observations, exitting" % sid
+            exit(-1)
+
+        for i, f in zip(insert[insert_curr:(insert_curr+curr_frames)],fragment_masses[insert_curr:(insert_curr+curr_frames)]):
+            ins_sequence.append(i)
+            fragments.append(f)
+            if not i:
+                used_peaks[f] = 1
+
+        insert_curr += curr_frames
+
+        # log all PSM info
+        currPsm = dripPSM(curr_pep_seq, curr_score,
+                          sid, curr_kind, curr_charge, curr_numby,
+                          fragments, ins_sequence, used_peaks)
+        if(curr_kind=='t'):
+            if curr_charge not in target_psms:
+                target_psms[curr_charge] = []
+            target_psms[curr_charge].append(currPsm)
+        elif(curr_kind=='d'):
+            if curr_charge not in decoy_psms:
+                decoy_psms[curr_charge] = []
+            decoy_psms[curr_charge].append(currPsm)
+        elif(curr_kind=='r'):
+            if recalibrate:
+                if curr_charge not in recal_decoy_psms:
+                    recal_decoy_psms[curr_charge] = []
+                recal_decoy_psms[curr_charge].append(currPsm)
+            else:
+                print "Encountered recalibration decoy but recalibrate set to false, exitting"
+                exit(-1)
+                           
+        count += 1
+
+    if count != numPeps: #didn't read all spectra scores, return empty scores
+        # raise ValueError(" Number of decoded peptides not equal to number of encoded peptides")
+        # don't want to exit since we may still completed runs not yet considered
+        return [dripPSM('', float("-inf"),sid, 't'), dripPSM('', float("-inf"),sid, 'd')]
+
+    sid_td_psms = []
+    for charge in target_psms:
+        # return topMatch number of targets and decoys
+        target_psms[charge].sort(key = lambda x: x.score, reverse = True)
+        decoy_psms[charge].sort(key = lambda x: x.score, reverse = True)
+
+        for i in range(min(topMatch, len(target_psms[charge]))):
+            currPsm = target_psms[charge][i]
+            currPsm.calc_drip_features_givenS(dripMeans, s)
+            sid_td_psms.append(currPsm)
+
+        for i in range(min(topMatch, len(decoy_psms[charge]))):
+            currPsm = decoy_psms[charge][i]
+            currPsm.calc_drip_features_givenS(dripMeans, s)
+            sid_td_psms.append(currPsm)
+
+        if recalibrate:
+            recal_decoy_psms[charge].sort(key = lambda x: x.score, reverse = True)
+            for i in range(min(topMatch, len(recal_decoy_psms[charge]))):
+                currPsm = recal_decoy_psms[charge][i]
+                currPsm.calc_drip_features_givenS(dripMeans, s)
+                sid_td_psms.append(currPsm)
+
+    return sid_td_psms
+
+def parse_drip_segments(filename, dripMeans, 
+                        topMatch, sid, numPeps, 
+                        pepDBlist, recalibrate):
+    """Parse the DRIP Viterbi path output by gmtkViterbi.  This is done spectrum by spectrum where each PSM
+       is created as an instance of the psm collection.namedtuple.  Although some of this namedtuple's fields
+       involve lists, we only retain the top topMatch per spectrum so that we shouldn't hit any memory problems
+    """
+    pattern = 'Segment (?P<segment>\d+), number of frames = (?P<frame>\d+), viterbi-score = (?P<score>\S+)'
+    try:
+        f = open(filename, 'r')
+    except IOError:
+        return [(None, float("-inf")), (None, float("-inf"))]
+    log = f.read()
+    f.close()
+
+    vit_insert_pattern = '.*FRAGMENT_MASS\(\d*\)=(?P<theo_peak>\d+),.*INSERTION\(\d*\)=(?P<insert>\d+)'
+    insert = [] # record all inserts
+    fragment_masses = []
+    for match in re.finditer(vit_insert_pattern, log, re.MULTILINE):
+        insert.append(match.group('insert')=='1')
+        fragment_masses.append(int(match.group('theo_peak')))
+
+    target_psms = {}
+    decoy_psms = {}
+    if recalibrate:
+        recal_decoy_psms = {}
 
     pepLookUp = open(pepDBlist, "r")
     # header: (1)Kind (2)Peptide (3) NumBY (4) Charge
@@ -878,10 +1022,18 @@ def parse_drip_segments(filename, dripMeans,
             if curr_charge not in target_psms:
                 target_psms[curr_charge] = []
             target_psms[curr_charge].append(currPsm)
-        else:
+        elif(curr_kind=='d'):
             if curr_charge not in decoy_psms:
                 decoy_psms[curr_charge] = []
             decoy_psms[curr_charge].append(currPsm)
+        elif(curr_kind=='r'):
+            if recalibrate:
+                if curr_charge not in recal_decoy_psms:
+                    recal_decoy_psms[curr_charge] = []
+                recal_decoy_psms[curr_charge].append(currPsm)
+            else:
+                print "Encountered recalibration decoy but recalibrate set to false, exitting"
+                exit(-1)
                            
         count += 1
 
@@ -906,6 +1058,12 @@ def parse_drip_segments(filename, dripMeans,
             # currPsm.spectrum = currSpec
             currPsm.add_obs_spectrum(currSpec)
             sid_td_psms.append(currPsm)
+
+        if recalibrate:
+            for i in range(min(topMatch, len(recal_decoy_psms[charge]))):
+                currPsm = recal_decoy_psms[charge][i]
+                currPsm.add_obs_spectrum(currSpec)
+                sid_td_psms.append(currPsm)
 
     return sid_td_psms
 
