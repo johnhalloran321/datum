@@ -302,8 +302,9 @@ DETERMINISTIC_CPT_IN_FILE inline 5
                                                                                                    peakLength,
                                                                                                    peakLength)
     
-    print >> fid, "2\nincrement_fragment_mass_cpt\n1\n%s\n%s\nincrement_fragment_mass\n" % (peakLength,
-                                                                                            maxTermMass)
+    # print >> fid, "2\nincrement_fragment_mass_cpt\n1\n%s\n%s\nincrement_fragment_mass\n" % (peakLength,
+    #                                                                                         maxTermMass)
+    print >> fid, "2\nincrement_fragment_mass_cpt\n1\n%s\nMAX_FRAGMENT_MASS\nincrement_fragment_mass\n" % (peakLength)
 
     print >> fid, """3
 not_insertion_cpt
@@ -547,6 +548,20 @@ def triangulate_drip(strFile = "model.str",
     #      stdout = stdo, stderr = stde)
     # call(['gmtkTriangulate', '-strFile', strFile, '-inputMasterFile', mtrFile] , 
     #      stdout = stdo, stderr = stde)
+
+def triangulate_drip_specFile(output, 
+                              strFile = "model.str", 
+                              max_fragment_mass = '20002',
+                              mtrFile = "model.mtr"):
+    cppCommand = '\'-DMAX_FRAGMENT_MASS=' + max_fragment_mass + '\''
+
+    triStr = 'gmtkTriangulate' \
+        + ' -inputMasterFile ' + mtrFile \
+        + ' -outputTriangulatedFile ' + output \
+        + ' -strFile ' + strFile \
+        + ' -cppCommand ' + cppCommand
+    if not os.path.isfile(output):
+        check_output(shlex.split(triStr)) # , stdin = sys.stdout, stdout = sys.stdout)
 
 def write_covar_file(highRes = False, covarFile = 'covar.txt', 
                      learnedCovars = '', riptidePrior = True,

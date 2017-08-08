@@ -828,7 +828,7 @@ def parse_drip_segments_binDb(s, filename, dripMeans,
 
 def parse_drip_singleSpectrum(filename, s, dripMeans,
                               topMatch, sid, 
-                              currSpec, numPeps, 
+                              numPeps, 
                               pepDBlist, recalibrate):
     """Parse the DRIP Viterbi path output by gmtkViterbi.  This is done spectrum by spectrum where each PSM
        is created as an instance of the psm collection.namedtuple.  Although some of this namedtuple's fields

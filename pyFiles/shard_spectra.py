@@ -1172,7 +1172,6 @@ def candidate_binarydb_spectra_generator(args,
     sid_visited = set([])
 
     for sid, c, pm in sidChargePreMass:
-        print sid, c, pm
         # if buffered_spec > spectra_buffer: # clear memory
         #     d_out.clear()
         #     t_out.clear()
