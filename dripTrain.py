@@ -58,8 +58,7 @@ from pyFiles.shard_spectra import (calc_minMaxMz,
                                    load_target_decoy_db_no_reshuffle)
 from subprocess import call, check_output, STDOUT
 
-debug=0
-
+debug=False
 bw = 1.0005079
 bo = 0.68
 # bw = 1.0
@@ -1003,7 +1002,7 @@ def make_training_data_lowres(args, spectra, dripMeans, theo_dict,
     return pep_num
 
 def calculateForcedAlignment(args, spectra, dripMeans, theo_dict,
-                             hq_psms, num_psms, stde, stdo):
+                             hq_psms, num_psms, stdo, stde):
     """ Run Viterbi to compute a forced alignment, i.e., most probable
         sequence of insertions which are used as observations during 
         training for boot model.  
@@ -1054,7 +1053,8 @@ def calculateForcedAlignment(args, spectra, dripMeans, theo_dict,
         exit(-1)
 
     try:
-        triangulate_drip(args.structure_file, args.master_file)
+        # triangulate_drip(args.structure_file, args.master_file)
+        triangulate_drip(args.structure_file, str(args.max_obs_mass))
     except:
         print "Could not create triangulate structure file %s, exitting" % args.structure_file
         exit(-1)
@@ -1064,6 +1064,7 @@ def calculateForcedAlignment(args, spectra, dripMeans, theo_dict,
     # run GMTK
     dtFile = os.path.join(args.output_dir, 'iterable.dts')
     cppCommand = '\'-DITERABLE_DT=' + dtFile \
+        + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
         + ' -DDRIP_MZ=' + args.mean_file \
         + ' -DDRIP_GAUSSIAN_COMPONENTS=' + args.gauss_file \
         + ' -DDRIP_GAUSSIAN_MIXTURES=' + args.mixture_file \
@@ -1121,7 +1122,8 @@ def runDripTrain(args, spectra, dripMeans, theo_dict,
         exit(-1)
 
     try:
-        triangulate_drip(args.structure_file, args.master_file)
+        # triangulate_drip(args.structure_file, args.master_file)
+        triangulate_drip(args.structure_file, str(args.max_obs_mass))
     except:
         print "Could not create triangulate structure file %s, exitting" % args.structure_file
         exit(-1)
@@ -1143,6 +1145,7 @@ def runDripTrain(args, spectra, dripMeans, theo_dict,
     # run GMTK
     dtFile = os.path.join(args.output_dir, 'iterable.dts')
     cppCommand = '\'-DITERABLE_DT=' + dtFile \
+        + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
         + ' -DDRIP_MZ=' + args.mean_file \
         + ' -DDRIP_GAUSSIAN_COMPONENTS=' + args.gauss_file \
         + ' -DDRIP_GAUSSIAN_MIXTURES=' + args.mixture_file \
@@ -1389,11 +1392,11 @@ if __name__ == '__main__':
     # gaussian_component[4]: covariance
 
     # gaussian_mixture[0]: name, gaussian_mixture[1]: mixture dim, gaussian_mixture[2]: num components, gaussian_mixture[3]: dpmf name, gaussian_mixture[4]: components
-
     remap_learned_means(dripMeans0, m)
 
     baseName = args.dripTrain_file.split('.')
 
+    print("DRIP training complete, writing learned parameters to files %s and %s\n" % (args.output_mean_file, args.output_covar_file), sys.stdout)
     assert len(baseName)==2 or len(baseName)==1, 'Output name %s has multiple periods in it\'s name, cannot distinguish file type.  Exitting' % args.dripTrain_file
 
 
@@ -1404,3 +1407,4 @@ if __name__ == '__main__':
         stdo.close()
     if stde:
         stde.close()
+    
