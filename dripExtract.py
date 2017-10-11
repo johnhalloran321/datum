@@ -57,7 +57,7 @@ from pyFiles.shard_spectra import (calc_minMaxMz,
 from pyFiles.process_vitvals import parse_dripExtract, write_psm_ins_dels
 from subprocess import call, check_output
 
-debug=0
+debug=True
 
 # set stdout and stderr for subprocess
 # stdo = open(os.devnull, "w")
@@ -577,7 +577,8 @@ def runDripExtract(args, stdo, stde):
         exit(-1)
 
     try:
-        triangulate_drip(args.structure_file, args.master_file)
+        # triangulate_drip(args.structure_file, args.master_file)
+        triangulate_drip(args.structure_file, str(args.max_obs_mass))
     except:
         print "Could not create triangulate structure file %s, exitting" % args.structure_file
         exit(-1)
@@ -593,6 +594,7 @@ def runDripExtract(args, stdo, stde):
     # run GMTK
     dtFile = os.path.join(args.output_dir, 'iterable.dts')
     cppCommand = '\'-DITERABLE_DT=' + dtFile \
+        + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
         + ' -DDRIP_MZ=' + args.mean_file \
         + ' -DDRIP_GAUSSIAN_COMPONENTS=' + args.gauss_file \
         + ' -DDRIP_GAUSSIAN_MIXTURES=' + args.mixture_file \
@@ -883,7 +885,8 @@ if __name__ == '__main__':
             exit(-1)
 
         try:
-            triangulate_drip(args.structure_file, args.master_file)
+            # triangulate_drip(args.structure_file, args.master_file)
+            triangulate_drip(args.structure_file, str(args.max_obs_mass))
         except:
             print "Could not create triangulate structure file %s, exitting" % args.structure_file
             exit(-1)
@@ -899,6 +902,7 @@ if __name__ == '__main__':
         # run GMTK
         dtFile = os.path.join(args.output_dir, 'iterable.dts')
         cppCommand = '\'-DITERABLE_DT=' + dtFile \
+            + ' -DMAX_FRAGMENT_MASS=' + str(args.max_obs_mass) \
             + ' -DDRIP_MZ=' + args.mean_file \
             + ' -DDRIP_GAUSSIAN_COMPONENTS=' + args.gauss_file \
             + ' -DDRIP_GAUSSIAN_MIXTURES=' + args.mixture_file \
@@ -908,10 +912,13 @@ if __name__ == '__main__':
         # set up pool for multithreading
         pool = multiprocessing.Pool(processes = args.num_threads)
 
-        inc = int(math.ceil(float(num_psms) / float(args.num_threads)))
-    
+        inc = int(math.floor(float(num_psms) / float(args.num_threads)))
         dcdrng_start = 0
         dcdrng_end = inc-1
+        # add in remainder
+        if (inc * args.num_threads < num_psms):
+            dcdrng_end += num_psms - inc * args.num_threads
+        print "%d, %d, %d, %d, %d" % (num_psms, args.num_threads, inc, dcdrng_start, dcdrng_end)
         v = []
         for thread in range(args.num_threads):
             outputFile = 'vitVals' + str(thread) + '.txt'
@@ -924,10 +931,10 @@ if __name__ == '__main__':
                 + ' -cppCommand ' + cppCommand \
                 + ' -dcdrng ' + str(dcdrng_start) + ':' + str(dcdrng_end)
 
-            dcdrng_start += inc
+            dcdrng_start = dcdrng_end + 1
             dcdrng_end += inc
-            if dcdrng_end >= num_psms:
-                dcdrng_end = num_psms - 1
+            # if dcdrng_end >= num_psms:
+            #     dcdrng_end = num_psms - 1
             # add to pool
             r = pool.apply_async(check_output, args=(shlex.split(vitStr),))
         # close pool
