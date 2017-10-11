@@ -215,7 +215,8 @@ def copyArgs(argsA, argsB):
         args.ident = ''
 
 def parseInputOptions():
-    parser = argparse.ArgumentParser(conflict_handler='resolve')
+    parser = argparse.ArgumentParser(conflict_handler='resolve', 
+                                     description="Run a DRIP database search given an MS2 file and the results of a FASTA file processed using dripDigest.")
     ############## input and output options
     iFileGroup = parser.add_argument_group('iFileGroup', 'Necessary input files.')
     help_spectra = '<string> - The name of the file from which to parse fragmentation spectra, in ms2 format.'
@@ -236,7 +237,7 @@ def parseInputOptions():
     searchParamsGroup.add_argument('--charges', type = str, action = 'store', default = 'All', help = help_charges)
     help_high_res_ms2 = """<T|F> - boolean, whether the search is over high-res ms2 (high-high) spectra. When this parameter is true, DRIP used the real valued masses of candidate peptides as its Gaussian means. For low-res ms2 (low-low or high-low), the observed m/z measures are much less accurate so these Gaussian means are learned using training data (see dripTrain). Default=False."""
     searchParamsGroup.add_argument('--high-res-ms2', type = str, action = 'store', default = 'false', help = help_high_res_ms2)
-    help_high_res_gauss_dist = """<float> - m/z distance for 99.9% of m/z Gaussian mass to lie within.  Only available for high-res MS2 searches. Default=0.05."""
+    help_high_res_gauss_dist = """<float> - m/z distance for 99.9%% of m/z Gaussian mass to lie within.  Only available for high-res MS2 searches. Default=0.05."""
     searchParamsGroup.add_argument('--high-res-gauss-dist', type = float, action = 'store', default = 0.05, help = help_high_res_gauss_dist)
     help_precursor_filter = """<T|F> - boolean, when true, filter all peaks 1.5Da from the observed precursor mass. Default=False."""
     searchParamsGroup.add_argument('--precursor-filter', type = str, action = 'store', default = 'false', help = help_precursor_filter)
@@ -361,6 +362,9 @@ def parseInputOptions():
     oFileGroup.add_argument('--output', type = str,
                       help = 'identification file name')
 
+    # args = parser.parse_args()
+    # parser.print_help()
+    # exit(0)
     return parser.parse_args()
 
 def runVit(vitString, stdo, stde):
