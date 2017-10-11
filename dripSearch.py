@@ -112,13 +112,13 @@ def copyArgs(argsA, argsB):
     argsA.random_wait = argsB.random_wait
     argsA.min_spectrum_length = argsB.min_spectrum_length
     argsA.max_spectrum_length = argsB.max_spectrum_length
-    argsA.ident = argsB.ident
+    # argsA.ident = argsB.ident
     # argsA.output_dir = argsB.output_dir
     # argsA.obs_dir = argsB.obs_dir
     argsA.shards = argsB.shards
-    argsA.num_spectra = argsB.num_spectra
+    # argsA.num_spectra = argsB.num_spectra
     argsA.ppm = argsB.ppm
-    argsA.filter_ident = argsB.filter_ident
+    # argsA.filter_ident = argsB.filter_ident
     argsA.max_obs_mass = argsB.max_obs_mass
     argsA.normalize = argsB.normalize
     argsA.filt_theo_peaks = argsB.filt_theo_peaks
@@ -211,8 +211,8 @@ def copyArgs(argsA, argsB):
     args.mixture_file = os.path.join(os.path.abspath(args.collection_dir), args.mixture_file)
     args.collection_file = os.path.join(os.path.abspath(args.collection_dir), args.collection_file)
 
-    if not args.filter_ident:
-        args.ident = ''
+    # if not args.filter_ident:
+    #     args.ident = ''
 
 def parseInputOptions():
     parser = argparse.ArgumentParser(conflict_handler='resolve', 
@@ -278,19 +278,19 @@ def parseInputOptions():
                         dest = 'min_spectrum_length', default = 1)
     parser.add_argument('--max_spectrum_length', type = int, action = 'store',
                         dest = 'max_spectrum_length', default = 10000)
-    parser.add_argument('--ident', type = str, action= 'store', 
-                        default = '')
+    # parser.add_argument('--ident', type = str, action= 'store', 
+    #                     default = '')
     parser.add_argument('--output-dir', type = str, default = 'encode')
     parser.add_argument('--obs-dir', type = str, action = 'store',
                         default = 'obs')
     parser.add_argument('--shards', type = int, action = 'store',
                         default = 1)
-    parser.add_argument('--num_spectra', type = int, action = 'store')
+    # parser.add_argument('--num_spectra', type = int, action = 'store')
     parser.add_argument('--ppm', action = 'store_true',
                         default = False)
-    parser.add_argument('--filter_ident', action = 'store_true',
-                        default = False,
-                      help = "Filter sids by ident")
+    # parser.add_argument('--filter_ident', action = 'store_true',
+    #                     default = False,
+    #                   help = "Filter sids by ident")
     ######### encoding options
     parser.add_argument("--max_obs_mass", type = int, default = 0)
     parser.add_argument('--normalize', dest = "normalize", type = str,
@@ -504,8 +504,8 @@ def process_args(args):
     args.mixture_file = os.path.join(os.path.abspath(args.collection_dir), args.mixture_file)
     args.collection_file = os.path.join(os.path.abspath(args.collection_dir), args.collection_file)
 
-    if not args.filter_ident:
-        args.ident = ''
+    # if not args.filter_ident:
+    #     args.ident = ''
 
     # check precursor mass type
     pmt = args.precursor_window_type.lower()

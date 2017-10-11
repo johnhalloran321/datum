@@ -142,8 +142,8 @@ def process_args(args):
     args.mixture_file = os.path.join(os.path.abspath(args.collection_dir), args.mixture_file)
     args.collection_file = os.path.join(os.path.abspath(args.collection_dir), args.collection_file)
 
-    if not args.filter_ident:
-        args.ident = ''
+    # if not args.filter_ident:
+    #     args.ident = ''
 
     # set true or false strings to booleans
     args.write_pin = check_arg_trueFalse(args.write_pin)
@@ -648,9 +648,9 @@ if __name__ == '__main__':
     help_spectra = """<string> - The name of the file from which to parse fragmentation spectra, in ms2 format."""
     iFileGroup.add_argument('--spectra', type = str, action = 'store',
                             help = help_spectra)
-    help_pepdb = """<string> - Protein FASTA file."""
-    iFileGroup.add_argument('--fasta', type = str, action = 'store',
-                            help = help_pepdb)
+    # help_pepdb = """<string> - Protein FASTA file."""
+    # iFileGroup.add_argument('--fasta', type = str, action = 'store',
+    #                         help = help_pepdb)
     ############## search parameters
     searchParamsGroup = parser.add_argument_group('searchParamsGroup', 'Search parameter options.')
     help_scan_id_list = """<string> - A file containing a list of scan IDs to search.  Default = <empty>."""
@@ -666,31 +666,34 @@ if __name__ == '__main__':
     help_num_threads = '<integer> - the number of threads to run on a multithreaded CPU. If supplied value is greater than number of supported threads, defaults to the maximum number of supported threads minus one. Multithreading is not suppored for cluster use as this is typically handled by the cluster job manager. Default=1.'
     searchParamsGroup.add_argument('--num-threads', type = int, action = 'store', 
                                    default = 1, help = help_num_threads)
+    help_randomize_ms2_spectra = '<T|F> - whether to randomize order of spectra when splitting ms2 file. Default = True'
+    searchParamsGroup.add_argument('--randomize_ms2_spectra', type = str, action = 'store', 
+                                   default = 'True', help = help_randomize_ms2_spectra)
     # help_top_match = '<integer> - The number of psms per spectrum written to the output files. Default=1.'
     # searchParamsGroup.add_argument('--top-match', type = int, action = 'store', 
     #                                default = 1, help = help_top_match)
-    ############## Cluster usage parameters
-    clusterUsageGroup = parser.add_argument_group('clusterUsageGroup', 'Cluster data generation options.')
-    help_randomize_ms2_spectra = '<T|F> - whether to randomize order of spectra when splitting ms2 file. Default = True'
-    clusterUsageGroup.add_argument('--randomize_ms2_spectra', type = str, action = 'store', 
-                                   default = 'True', help = help_randomize_ms2_spectra)
-    help_random_wait = '<integer> - randomly wait up to specified number of seconds before writing results back to NFS. Default=30'
-    clusterUsageGroup.add_argument('--random_wait', type = int, action = 'store', 
-                                   default = 30, help = help_random_wait)
-    help_num_jobs = '<integer> - the number of jobs to run in parallel. Default=1.'
-    clusterUsageGroup.add_argument('--num-jobs', type = int, action = 'store', 
-                                   default = 1, help = help_num_jobs)
-    ############## peptide properties
-    peptidePropertiesGroup = parser.add_argument_group('peptidePropertiesGroup', 'Options for digested peptids.')
-    max_length_help = """<integer> - The maximum length of peptides to consider. Default = 50."""
-    peptidePropertiesGroup.add_argument('--max-length', type = int, action = 'store',
-                                        default = 50, help = max_length_help)
-    max_mass_help = """<float> - The maximum mass (in Da) of peptides to consider. Default = 7200."""
-    peptidePropertiesGroup.add_argument('--max-mass', type = float, action = 'store',
-                                        default = 7200.0, help = max_mass_help)
-    min_mass_help = """<float> - The minimum mass (in Da) of peptides to consider. Default = 7200."""
-    peptidePropertiesGroup.add_argument('--min-mass', type = float, action = 'store',
-                                        default = 200.0, help = min_mass_help)
+    # ############## Cluster usage parameters
+    # clusterUsageGroup = parser.add_argument_group('clusterUsageGroup', 'Cluster data generation options.')
+    # help_randomize_ms2_spectra = '<T|F> - whether to randomize order of spectra when splitting ms2 file. Default = True'
+    # clusterUsageGroup.add_argument('--randomize_ms2_spectra', type = str, action = 'store', 
+    #                                default = 'True', help = help_randomize_ms2_spectra)
+    # help_random_wait = '<integer> - randomly wait up to specified number of seconds before writing results back to NFS. Default=30'
+    # clusterUsageGroup.add_argument('--random_wait', type = int, action = 'store', 
+    #                                default = 30, help = help_random_wait)
+    # help_num_jobs = '<integer> - the number of jobs to run in parallel. Default=1.'
+    # clusterUsageGroup.add_argument('--num-jobs', type = int, action = 'store', 
+    #                                default = 1, help = help_num_jobs)
+    # ############## peptide properties
+    # peptidePropertiesGroup = parser.add_argument_group('peptidePropertiesGroup', 'Options for digested peptids.')
+    # max_length_help = """<integer> - The maximum length of peptides to consider. Default = 50."""
+    # peptidePropertiesGroup.add_argument('--max-length', type = int, action = 'store',
+    #                                     default = 50, help = max_length_help)
+    # max_mass_help = """<float> - The maximum mass (in Da) of peptides to consider. Default = 7200."""
+    # peptidePropertiesGroup.add_argument('--max-mass', type = float, action = 'store',
+    #                                     default = 7200.0, help = max_mass_help)
+    # min_mass_help = """<float> - The minimum mass (in Da) of peptides to consider. Default = 7200."""
+    # peptidePropertiesGroup.add_argument('--min-mass', type = float, action = 'store',
+    #                                     default = 200.0, help = min_mass_help)
     ############## amino acid modifications
     aaModsGroup = parser.add_argument_group('aaModsGroup', 'Options for amino acid modifications.')
     aaModsGroup.add_argument('--mods-spec', type = str, action = 'store',
@@ -703,36 +706,36 @@ if __name__ == '__main__':
                              default = 255)
     aaModsGroup.add_argument('--min-mods', type = int, action = 'store',
                              default = 0)
-    ############## decoy database generation
-    decoyDBGroup = parser.add_argument_group('decoyDBGroup', 'Options decoy database generation.')
-    help_decoy_format = '<shuffle|peptide-reverse> - Include a decoy version of every peptide by shuffling or reversing the target sequence or protein. In shuffle or peptide-reverse mode, each peptide is either reversed or shuffled, leaving the N-terminal and C-terminal amino acids in place. Note that peptides appear multiple times in the target database are only shuffled once. In peptide-reverse mode, palindromic peptides are shuffled. Also, if a shuffled peptide produces an overlap with the target or decoy database, then the peptide is re-shuffled up to 100n times, where n is the length of the string to be shuffled. Note that, despite this repeated shuffling, homopolymers will appear in both the target and decoy database. The protein-reverse mode reverses the entire protein sequence, irrespective of the composite peptides. Default = shuffle.'
-    decoyDBGroup.add_argument('--decoy-format', type = str, action = 'store', 
-                              default = 'shuffle', help = help_decoy_format)
-    help_keep_terminal_aminos = '<N|C|NC|none> - When creating decoy peptides using decoy-format=shuffle or decoy-format=peptide-reverse, this option specifies whether the N-terminal and C-terminal amino acids are kept in place or allowed to be shuffled or reversed. For a target peptide "EAMPK" with decoy-format=peptide-reverse, setting keep-terminal-aminos to "NC" will yield "EPMAK"; setting it to "C" will yield "PMAEK"; setting it to "N" will yield "EKPMA"; and setting it to "none" will yield "KPMAE". Default = NC.'
-    decoyDBGroup.add_argument('--keep-terminal-aminos', type = str, action = 'store', 
-                              default = 'NC', help = help_keep_terminal_aminos)
-    help_seed = '<seed> - When given a unsigned integer value seeds the random number generator with that value. When given the string "time" seeds the random number generator with the system time. Default = 1.'
-    decoyDBGroup.add_argument('--seed', type = str, action = 'store', 
-                              default = '1', help = help_seed)
+    # ############## decoy database generation
+    # decoyDBGroup = parser.add_argument_group('decoyDBGroup', 'Options decoy database generation.')
+    # help_decoy_format = '<shuffle|peptide-reverse> - Include a decoy version of every peptide by shuffling or reversing the target sequence or protein. In shuffle or peptide-reverse mode, each peptide is either reversed or shuffled, leaving the N-terminal and C-terminal amino acids in place. Note that peptides appear multiple times in the target database are only shuffled once. In peptide-reverse mode, palindromic peptides are shuffled. Also, if a shuffled peptide produces an overlap with the target or decoy database, then the peptide is re-shuffled up to 100n times, where n is the length of the string to be shuffled. Note that, despite this repeated shuffling, homopolymers will appear in both the target and decoy database. The protein-reverse mode reverses the entire protein sequence, irrespective of the composite peptides. Default = shuffle.'
+    # decoyDBGroup.add_argument('--decoy-format', type = str, action = 'store', 
+    #                           default = 'shuffle', help = help_decoy_format)
+    # help_keep_terminal_aminos = '<N|C|NC|none> - When creating decoy peptides using decoy-format=shuffle or decoy-format=peptide-reverse, this option specifies whether the N-terminal and C-terminal amino acids are kept in place or allowed to be shuffled or reversed. For a target peptide "EAMPK" with decoy-format=peptide-reverse, setting keep-terminal-aminos to "NC" will yield "EPMAK"; setting it to "C" will yield "PMAEK"; setting it to "N" will yield "EKPMA"; and setting it to "none" will yield "KPMAE". Default = NC.'
+    # decoyDBGroup.add_argument('--keep-terminal-aminos', type = str, action = 'store', 
+    #                           default = 'NC', help = help_keep_terminal_aminos)
+    # help_seed = '<seed> - When given a unsigned integer value seeds the random number generator with that value. When given the string "time" seeds the random number generator with the system time. Default = 1.'
+    # decoyDBGroup.add_argument('--seed', type = str, action = 'store', 
+    #                           default = '1', help = help_seed)
     ############ shard spectra options
-    parser.add_argument('--min_spectrum_length', type = int, action = 'store',
-                        dest = 'min_spectrum_length', default = 1)
-    parser.add_argument('--max_spectrum_length', type = int, action = 'store',
-                        dest = 'max_spectrum_length', default = 10000)
-    parser.add_argument('--ident', type = str, action= 'store', 
-                        default = '')
+    # parser.add_argument('--min_spectrum_length', type = int, action = 'store',
+    #                     dest = 'min_spectrum_length', default = 1)
+    # parser.add_argument('--max_spectrum_length', type = int, action = 'store',
+    #                     dest = 'max_spectrum_length', default = 10000)
+    # parser.add_argument('--ident', type = str, action= 'store', 
+    #                     default = '')
     parser.add_argument('--output-dir', type = str, default = 'encode')
     parser.add_argument('--obs-dir', type = str, action = 'store',
                         default = 'obs')
-    parser.add_argument('--num_spectra', type = int, action = 'store')
-    parser.add_argument('--ppm', action = 'store_true',
-                        default = False)
-    parser.add_argument('--filter_ident', action = 'store_true',
-                        default = False,
-                      help = "Filter sids by ident")
-    parser.add_argument('-z', '--use_gzcat', action = 'store_true',
-                        dest = 'gzcat', default = False,
-                        help = "Use gzcat to decompress .ms2.gz files, if avail.")
+    # parser.add_argument('--num_spectra', type = int, action = 'store')
+    # parser.add_argument('--ppm', action = 'store_true',
+    #                     default = False)
+    # parser.add_argument('--filter_ident', action = 'store_true',
+    #                     default = False,
+    #                     help = "Filter sids by ident")
+    # parser.add_argument('-z', '--use_gzcat', action = 'store_true',
+    #                     dest = 'gzcat', default = False,
+    #                     help = "Use gzcat to decompress .ms2.gz files, if avail.")
     ######### encoding options
     parser.add_argument("--max_obs_mass", type = int, default = 0)
     parser.add_argument('--normalize', dest = "normalize", type = str,
@@ -919,7 +922,6 @@ if __name__ == '__main__':
         # add in remainder
         if (inc * args.num_threads < num_psms):
             dcdrng_end += num_psms - inc * args.num_threads
-        print "%d, %d, %d, %d, %d" % (num_psms, args.num_threads, inc, dcdrng_start, dcdrng_end)
         v = []
         for thread in range(args.num_threads):
             outputFile = 'vitVals' + str(thread) + '.txt'
