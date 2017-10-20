@@ -760,6 +760,7 @@ def psm(p, s0, c = 2, highResMs2 = False,
     # run GMTK
     dtFile = os.path.join(output_dir, 'iterable.dts')
     cppCommand = '\'-DITERABLE_DT=' + dtFile \
+        + ' -DMAX_FRAGMENT_MASS=' + str(max_obs_mass) \
         + ' -DDRIP_MZ=' + args.mean_file \
         + ' -DDRIP_GAUSSIAN_COMPONENTS=' + args.gauss_file \
         + ' -DDRIP_GAUSSIAN_MIXTURES=' + args.mixture_file \
