@@ -73,12 +73,12 @@ will be written to file dripSearch-test-output.txt.
 For a detailed explanation of using the toolkit, including training DRIP, 
 preparing data for cluster usage, and speeding up a search using approximate 
 inference, please consult:
-http://melodi-lab.github.io/dripToolkit/documentation.html
+https://jthalloran.bitbucket.io/dripToolkit/documentation.html
 
 For a full list of allowable toolkit options, please consult:
-http://melodi-lab.github.io/dripToolkit/dripDigest.html
-http://melodi-lab.github.io/dripToolkit/dripSearch.html
-http://melodi-lab.github.io/dripToolkit/dripTrain.html
+https://jthalloran.bitbucket.io/dripToolkit/dripDigest.html
+https://jthalloran.bitbucket.io/dripToolkit/dripSearch.html
+https://jthalloran.bitbucket.io/dripToolkit/dripTrain.html
 
 ---------------------------------------------------
 ----------------- Contaact
