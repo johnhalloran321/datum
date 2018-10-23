@@ -1,3 +1,38 @@
+DATUM - DBN Analysis Tools to Understand MS/MS data
+===================================================
+DATUM is a toolkit consisting of several dynamic Bayesian networks (DBNs) 
+and associated software tools to analyze tandem mass (MS/MS) spectra.  The toolkit
+supports effective parameter learning, database search, and post-search feature 
+extraction for Percolator analysis.  Written in Python and ported from the DRIP
+Toolkit (DTK), DATUM adds sveral new modules for Didea, a DBN whose posterior-based
+scoring function may be thought of as a probabilistic analogue to the popular XCorr 
+scoring function found in SEQUEST/Comet/CRUX.  Training and searching with Didea is 
+both faster and more accurate than using DRIP, while also offering training 
+convergence guarantees not possible with DRIP (i.e., Didea learning converges to a 
+global optimum while DRIP learning only converged to a local optima).  If you use
+the Didea features offered by DATUM in your research, please cite:
+
+John T. Halloran and David M. Rocke.
+"Learning Concave Conditional Likelihood Models for Improved Analysis of 
+Tandem Mass Spectra."  Advances in Neural Information Processing Systems (NIPS) 2018.
+
+---------------------------------------------------
+----------------- DATUM Installation
+---------------------------------------------------
+If you are only using the Didea modules (i.e., digest.py, dideaTrain.py, 
+dideaSearch.py), no extra software aside from Python 2.7 is required and the modules
+will work after downloading.  For information on using DRIP, see below.
+
+---------------------------------------------------
+----------------- Disclaimer
+---------------------------------------------------
+Didea is under development and currently only supports low-res MS2 searches and 
+parameter learning without peptide modifications.  DATUM will soon be updated when
+these restrictions are loosened.
+
+===================================================
+==========  Info for DRIP Tools
+===================================================
 The DRIP Toolkit utilizes a dynamic Bayesian network (DBN) 
 for Rapid Identification of Peptides (DRIP) in tandem mass spectra.  
 Given an observed spectrum, DRIP scores a peptide by aligning the 
@@ -8,12 +43,11 @@ DBN inference is efficiently performed utilizing the Graphical Models
 Toolkit (GMTK), which allows easy alterations to the model. If you use 
 the DRIP toolkit in your research, please cite:
 
-John T. Halloran, Jeff A. Bilmes, and William S. Noble. "Learning 
-Peptide-Spectrum Alignment Models for Tandem Mass Spectrometry". 
-Thirtieth Conference on Uncertainty in Artificial Intelligence 
-(UAI 2014). AUAI, Quebic City, Quebec Canada, July 2014.
+John T. Halloran, Jeff A. Bilmes, and William S. Noble.
+"Dynamic bayesian network for accurate detection of peptides from tandem mass spectra." 
+Journal of proteome research 15.8 (2016): 2749-2759.
 
-Written by John T. Halloran (halloj3@uw.edu).
+Written by John T. Halloran (jthalloran@ucdavis.edu).
 
 ---------------------------------------------------
 ----------------- Installation
@@ -84,4 +118,4 @@ https://jthalloran.bitbucket.io/dripToolkit/dripTrain.html
 ----------------- Contaact
 ---------------------------------------------------
 Please send all questions and bug reports to:
-halloj3@uw.edu
+jthalloran@ucdavis.edu
