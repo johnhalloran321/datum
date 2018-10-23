@@ -241,11 +241,6 @@ def load_spectra(ms2File, charges, ident = None, randOrder = True):
         validcharges = set(int(c) for c in charges.split(','))
         spectra = list(s for s in MS2Iterator(ms2File, gzcat) if
                        set(s.charges) & validcharges) 
-
-    print >> sys.stderr, '%s has %d spectra with charges %s' % (
-        ms2File, len(spectra),
-        '{' + ','.join('+%d' % c for c in validcharges) + '}')
-
     minMz = 2000.0
     maxMz = -1
     if ident:
@@ -289,6 +284,10 @@ def load_spectra(ms2File, charges, ident = None, randOrder = True):
 
     if randOrder:
         shuffle(spectra)
+
+    print >> sys.stderr, '%s has %d spectra with charges %s' % (
+        ms2File, len(spectra),
+        '{' + ','.join('+%d' % c for c in validcharges) + '}')
 
     return spectra, minMz, maxMz, validcharges
 
@@ -539,6 +538,90 @@ def candidate_spectra_generator(args, r,
                      'maxMz' : maxMz}
         yield data
 
+##################################### stopped here
+def didea_candidate_generator(args, r, spectra,
+                              mods, nterm_mods, cterm_mods):
+    """ Load all spectra and candidate targets/decoys into memory,
+        yield each spectrum and candidates
+    """
+
+    targets, decoys = load_target_decoy_db(args, r, mods, nterm_mods, cterm_mods)
+    # create target/decoy database instances
+    targets = SimplePeptideDB(targets)
+    if decoys:
+        decoys = SimplePeptideDB(decoys)
+    n = len(spectra)
+    if n < args.shards:
+        print('More shards than spectra: %d vs. %d, defaulting to %d shards' % (
+        args.shards, n, max(int(n/4), 1)))
+        args.shards = max(int(n/4), 1)
+    sz = int(math.floor(float(n)/args.shards))
+    print args.shards
+    print >> sys.stderr, 'Each shard has at most %d spectra' % sz
+
+    # calculate candidate peptides, create pickles
+    mass_h = 1.00727646677
+    for part, group in enumerate(grouper(sz, spectra)):
+        spectra_app = []
+        spectra_list = list(s for s in group if s)
+        emptySpectra = 0
+        # Use neutral mass to select peptides (Z-lines report M+H+ mass)
+        t = collections.defaultdict(list)
+        if args.decoys:
+            d = collections.defaultdict(list)
+        for s in spectra_list:
+            spec_added = 0
+            repSpec = 0
+            for c, m in s.charge_lines:
+                if c in validcharges:
+                    tc = targets.filter(m - mass_h, args.precursor_window, args.ppm)
+                    if args.decoys:
+                        dc = decoys.filter(m - mass_h, args.precursor_window, args.ppm)
+                        if len(tc) > 0 and len(dc) > 0:
+                            print "sid=%d, charge=%d, num targets=%d, num decoys=%d" % (s.spectrum_id, c, len(tc), len(dc))
+                            if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                t[(s.spectrum_id,c)] += tc
+                                d[(s.spectrum_id,c)] += dc
+                                repSpec = 1
+                            else:
+                                t[(s.spectrum_id,c)] = tc
+                                d[(s.spectrum_id,c)] = dc
+                            if not spec_added:
+                                spectra_app.append(s)
+                                spec_added = 1
+                        else:
+                            emptySpectra += 1
+                    else:
+                        if len(tc) > 0:
+                            print "sid=%d, charge=%d, num targets=%d" % (s.spectrum_id, c, len(tc))
+                            if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                t[(s.spectrum_id,c)] += tc
+                                repSpec = 1
+                            else:
+                                t[(s.spectrum_id,c)] = tc
+                            if not spec_added:
+                                spectra_app.append(s)
+                                spec_added = 1
+                        else:
+                            emptySpectra += 1
+
+            if repSpec: # prune any multiply added peptide candidates
+                for c in validcharges:
+                    if (s.spectrum_id, c) in t:
+                        t[(s.spectrum_id, c)] = list(set(t[(s.spectrum_id, c)]))
+                        if args.decoys:
+                            d[(s.spectrum_id, c)] = list(set(d[(s.spectrum_id, c)]))
+
+        print "%d spectra with empty candidate sets" % emptySpectra
+        if args.decoys:
+            data = { 'spectra' : spectra_app,
+                     'target' : t,
+                     'decoy' : d}
+        else:
+            data = { 'spectra' : spectra_app,
+                     'target' : t}
+        yield data
+
 def find_curr_candidate_peps(t, tfid, m, precursor_window, ppm,
                              lowerMassKey, upperMassKey,
                              stst, t_l_buffered, buff):
@@ -595,142 +678,6 @@ def find_curr_candidate_peps(t, tfid, m, precursor_window, ppm,
             # we get within the mass range
 
     return mass_filter(t, m, precursor_window, ppm)                
-
-# def candidate_binarydb_spectra_generator(args,
-#                                          mods, nterm_mods, cterm_mods,
-#                                          var_mods, nterm_var_mods, cterm_var_mods):
-#     """ Binary database assumed to be created.  Load spectra into memory, sort by 
-#         precursor mass.  Simultaneously traverse binary peptide database(s) (both target
-#         and decoy, if decoys have been generated) in order of succeeding mass, thus keeping
-#         memory usage down for when the number of peptides is exponentially large compared
-#         to the number of protein strings in the FASTA database (i.e., many missed cleavages,
-#         partial-digestion, variable modifications).
-#     """
-
-#     # Compute the number of spectra in each slice.
-#     # Should be ok to load all spectra into memory so long as we 
-#     # don't also load all PSMs into memory
-
-#     buff = args.peptide_buffer
-
-#     # unfortunately, we can no longer shuffle spectra
-#     spectra, minMz, maxMz, validcharges, sidChargePreMass = load_spectra_ret_dict(args.spectra,
-#                                                                                   args.charges)
-
-#     # set global variable to parsed/all encountered charges
-#     args.charges = validcharges
-
-#     t_buff = []
-#     d_buff = []
-
-#     if not var_mods and not nterm_var_mods and not cterm_var_mods:
-#         stst = struct.Struct('f %ds I s s' % (args.max_length))
-#     else:    
-#         # we have some variable mods, so var_mods, nterm_var_mods, or cterm_var_mods are non-empty
-#         # serialized data:
-#         #    peptide[0] = peptide mass (float)
-#         #    peptide[1] = peptide string (string of max_length character, possibly many of which are null)
-#         #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
-#         #    peptide[3] = nterm_flanking (character)
-#         #    peptide[4] = cterm_flanking (character)
-#         #    peptide[5] = binary string deoting variable modifications
-#         stst = struct.Struct('f %ds I s s %ds' % (args.max_length, args.max_length))
-
-
-#     t_l_buffered = []
-
-#     d_l_buffered = []
-
-#     t = []
-#     d = []
-
-#     t_out = {}
-#     d_out = {}
-
-#     spectra_app = []
-#     spectra_buffer = 1000
-
-#     buffered_spec = 0
-    
-#     tfid = open(os.path.join(args.digest_dir, 'targets.bin'), 'rb')
-#     if args.decoys:
-#         dfid = open(os.path.join(args.digest_dir, 'decoys.bin'), 'rb')
-#         if args.recalibrate:
-#             recal_dfid = open(os.path.join(args.digest_dir, 'recalibrateDecoys.bin'), 'rb')
-#             recal_d_out = {}
-
-#     # calculate candidate peptides, yield a buffer of spectra and candidates
-#     mass_h = 1.00727646677
-
-#     if not args.ppm:
-#         tol_buf = int(math.ceil(args.precursor_window))
-#     else:
-#         tol_buf = 1
-
-#     sid_visited = set([])
-
-#     for sid, c, pm in sidChargePreMass:
-
-#         if buffered_spec > spectra_buffer: # clear memory
-#             d_out.clear()
-#             t_out.clear()
-#             del spectra_app[:]
-#             buffered_spec = 0 # this will have been yielded at the end of the previous iteration
-
-#             if args.recalibrate:
-#                 recal_d_out.clear()
-
-#         m = pm - mass_h
-
-#         # would use read_binary_peptide_tuples_buffer function for the following, but much
-#         # care is needed to carefully traverse the lists of targets and decoys
-
-#         lowerMassKey = math.floor(m-tol_buf)
-#         upperMassKey = math.ceil(m+tol_buf)
-
-#         # print "%d, %f" % (sid, pm)
-#         # if t_l_buffered:
-#         #     p = stst.unpack(t_l_buffered[0:stst.size])
-#         #     print "%d, %d, %f, %f, %f, %f, %d" % (sid, c, m, lowerMassKey, upperMassKey, p[0], len(t))
-
-#         curr_peps = find_curr_candidate_peps(t, tfid, m, args.precursor_window, args.ppm,
-#                                              lowerMassKey, upperMassKey,
-#                                              stst, t_l_buffered,
-#                                              buff)
-#         if curr_peps:
-#             t_out[sid, c] = curr_peps
-
-#         curr_peps = find_curr_candidate_peps(d, dfid, m, args.precursor_window, args.ppm,
-#                                              lowerMassKey, upperMassKey,
-#                                              stst, d_l_buffered,
-#                                              buff)
-#         if curr_peps:
-#             d_out[sid, c] = curr_peps
-
-#         if sid not in sid_visited:
-#             spectra_app.append(spectra[sid])
-#             sid_visited.add(sid)
-
-#         buffered_spec += 1
-
-#         if buffered_spec == spectra_buffer:
-#             data = { 'spectra' : spectra_app,
-#                      'target' : t_out,
-#                      'decoy' : d_out,
-#                      'minMz' : minMz, 
-#                      'maxMz' : maxMz}
-#             yield data
-
-
-#     tfid.close()
-#     dfid.close()
-#     if buffered_spec:
-#         data = { 'spectra' : spectra_app,
-#                  'target' : t_out,
-#                  'decoy' : d_out,
-#                  'minMz' : minMz, 
-#                  'maxMz' : maxMz}
-#         yield data        
 
 def pickle_candidate_binarydb_spectra(args,
                                       mods, nterm_mods, cterm_mods,
@@ -1150,6 +1097,8 @@ def candidate_binarydb_spectra_generator(args,
     # spectra_buffer = 1000
     spectra_buffer = args.peptide_buffer
 
+    print "spectra buffer = %d" % (spectra_buffer)
+
     buffered_spec = 0
     
     tfid = open(os.path.join(args.digest_dir, 'targets.bin'), 'rb')
@@ -1172,15 +1121,6 @@ def candidate_binarydb_spectra_generator(args,
     sid_visited = set([])
 
     for sid, c, pm in sidChargePreMass:
-        # if buffered_spec > spectra_buffer: # clear memory
-        #     d_out.clear()
-        #     t_out.clear()
-        #     del spectra_app[:]
-        #     buffered_spec = 0 # this will have been yielded at the end of the previous iteration
-
-        #     if args.recalibrate:
-        #         recal_d_out.clear()
-
         m = pm - mass_h
 
         # would use read_binary_peptide_tuples_buffer function for the following, but much
@@ -1188,11 +1128,6 @@ def candidate_binarydb_spectra_generator(args,
 
         lowerMassKey = math.floor(m-tol_buf)
         upperMassKey = math.ceil(m+tol_buf)
-
-        # print "%d, %f" % (sid, pm)
-        # if t_l_buffered:
-        #     p = stst.unpack(t_l_buffered[0:stst.size])
-        #     print "%d, %d, %f, %f, %f, %f, %d" % (sid, c, m, lowerMassKey, upperMassKey, p[0], len(t))
 
         # load in targets
         run = 1
@@ -1207,13 +1142,6 @@ def candidate_binarydb_spectra_generator(args,
             else: # some must be in mass range, determine which and clear some of the buffer
                 # do bisection
                 prune_peptide_buffer(t, lowerMassKey)
-
-        # if sid==48 and c==2:
-        #     print len(t)
-        #     print m
-        #     print lowerMassKey
-        #     print upperMassKey
-        #     print len(t_l_buffered)
 
         # first check buffered peptides
         if t_l_buffered:
@@ -1427,6 +1355,297 @@ def candidate_binarydb_spectra_generator(args,
                      'decoy' : d_out,
                      'minMz' : minMz, 
                      'maxMz' : maxMz}
+        yield data        
+
+def didea_candidate_binarydb_generator(args,
+                                       spectra, sidChargePreMass,
+                                       mods, nterm_mods, cterm_mods,
+                                       var_mods, nterm_var_mods, cterm_var_mods):
+    """ Given observed spectra, yield candidate peptides for Didea
+    Binary database assumed to be created.  Load spectra into memory, sort by 
+        precursor mass.  Simultaneously traverse binary peptide database(s) (both target
+        and decoy, if decoys have been generated) in order of succeeding mass, thus keeping
+        memory usage down for when the number of peptides is exponentially large compared
+        to the number of protein strings in the FASTA database (i.e., many missed cleavages,
+        partial-digestion, variable modifications).
+    """
+    buff = args.peptide_buffer
+
+    if not var_mods and not nterm_var_mods and not cterm_var_mods:
+        stst = struct.Struct('f %ds I s s' % (args.max_length))
+    else:    
+        # we have some variable mods, so var_mods, nterm_var_mods, or cterm_var_mods are non-empty
+        # serialized data:
+        #    peptide[0] = peptide mass (float)
+        #    peptide[1] = peptide string (string of max_length character, possibly many of which are null)
+        #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
+        #    peptide[3] = nterm_flanking (character)
+        #    peptide[4] = cterm_flanking (character)
+        #    peptide[5] = binary string deoting variable modifications
+        stst = struct.Struct('f %ds I s s %ds' % (args.max_length, args.max_length))
+
+    t_l_buffered = ''
+    d_l_buffered = ''
+
+    t = []
+    d = []
+
+    t_out = {}
+    d_out = {}
+
+    spectra_app = []
+    # spectra_buffer = 1000
+    spectra_buffer = args.peptide_buffer
+    print "spectra buffer=%d" % (spectra_buffer)
+
+    buffered_spec = 0
+    
+    tfid = open(os.path.join(args.digest_dir, 'targets.bin'), 'rb')
+    if args.decoys:
+        dfid = open(os.path.join(args.digest_dir, 'decoys.bin'), 'rb')
+        if args.recalibrate:
+            recal_dfid = open(os.path.join(args.digest_dir, 'recalibrateDecoys.bin'), 'rb')
+            recal_d_l_buffered = ''
+            recal_d = []
+            recal_d_out = {}
+
+    # calculate candidate peptides, yield a buffer of spectra and candidates
+    mass_h = 1.00727646677
+
+    if not args.ppm:
+        tol_buf = int(math.ceil(args.precursor_window))
+    else:
+        tol_buf = 1
+
+    sid_visited = set([])
+
+    for sid, c, pm in sidChargePreMass:
+        m = pm - mass_h
+
+        # would use read_binary_peptide_tuples_buffer function for the following, but much
+        # care is needed to carefully traverse the lists of targets and decoys
+
+        lowerMassKey = math.floor(m-tol_buf)
+        upperMassKey = math.ceil(m+tol_buf)
+
+        # load in targets
+        run = 1
+        # see if old targets are within mass range
+        if t:
+            if t[-1][0] < lowerMassKey: # none are in mass range
+                del t[:]
+            elif t[0][0] > upperMassKey: # this shouldn't happen since this would mean all 
+                # subsequent peptides to be read are also greater
+                print "Cached peptides are greater than current precursor mass, exitting"
+                exit(-1)
+            else: # some must be in mass range, determine which and clear some of the buffer
+                # do bisection
+                prune_peptide_buffer(t, lowerMassKey)
+
+        # first check buffered peptides
+        if t_l_buffered:
+            start_ind = 0
+            end_ind = stst.size
+            for i in range(len(t_l_buffered) / stst.size):
+                p = stst.unpack(t_l_buffered[start_ind:end_ind])
+                start_ind += stst.size
+                end_ind += stst.size
+                if p[0] >= lowerMassKey and p[0] <= upperMassKey:
+                    t.append(p)
+                elif p[0] > upperMassKey: # we're outside the mass tolerance range now
+                    # del t_l_buffered[:start_ind]
+                    start_ind -= stst.size
+                    t_l_buffered = t_l_buffered[start_ind:]
+                    run = 0 
+                    break
+                # else, keep checking the buffered peptides til we get into the mass range
+
+        while run:
+            # read in buffer of peptides
+            l = tfid.read(stst.size * buff)
+            if not l:
+                run = 0
+                break
+            start_ind = 0
+            end_ind = stst.size
+            t_l_buffered = ''
+            for i in range(len(l) / stst.size):
+                p = stst.unpack(l[start_ind:end_ind])
+                start_ind += stst.size
+                end_ind += stst.size
+                if p[0] >= lowerMassKey and p[0] <= upperMassKey:
+                    t.append(p)
+                elif p[0] > upperMassKey: # stop reading in peptides, we're outside mass tolerance range now
+                    # include current peptide in buffer
+                    start_ind -= stst.size
+                    t_l_buffered = l[start_ind:] # buffer remaining peptides for next iteration
+                    run = 0
+                    break
+                # else, just keep reading in peptides from the binary file until
+                # we get within the mass range
+
+        curr_peps = mass_filter(t, m, args.precursor_window, args.ppm)                
+        if curr_peps:
+            t_out[sid, c] = curr_peps
+
+        # load in decoys
+        run = 1
+        # see if old decoys are within mass range
+        if d:
+            if d[-1][0] < lowerMassKey: # none are in mass range
+                del d[:]
+            elif d[0][0] > upperMassKey: # this shouldn't happen since this would mean all 
+                # subsequent peptides to be read are also greater
+                print "Cached peptides are greater than current precursor mass, exitting"
+                exit(-1)
+            else: # some must be in mass range, determine which and clear some of the buffer
+                # do bisection
+                prune_peptide_buffer(d, lowerMassKey)
+
+        # first checked buffered peptides
+        if d_l_buffered:
+            start_ind = 0
+            end_ind = stst.size
+            for i in range(len(d_l_buffered) / stst.size):
+                p = stst.unpack(d_l_buffered[start_ind:end_ind])
+                start_ind += stst.size
+                end_ind += stst.size
+                if p[0] >= lowerMassKey and p[0] <= upperMassKey:
+                    d.append(p)
+                elif p[0] > upperMassKey: # we're outside the mass tolerance range now
+                    start_ind -= stst.size
+                    d_l_buffered = d_l_buffered[start_ind:]                    
+                    run = 0
+                    break
+                # else, keep checking the buffered peptides til we get into the mass range
+        while run:
+            # read in buffer of peptides
+            l = dfid.read(stst.size * buff)
+            if not l:
+                run = 0
+                break
+            start_ind = 0
+            end_ind = stst.size
+            d_l_buffered = ''
+            for i in range(len(l) / stst.size):
+                p = stst.unpack(l[start_ind:end_ind])
+                start_ind += stst.size
+                end_ind += stst.size
+                if p[0] >= lowerMassKey and p[0] <= upperMassKey:
+                    d.append(p)
+                elif p[0] > upperMassKey: # stop reading in peptides, we're outside mass tolerance range now
+                    start_ind -= stst.size
+                    d_l_buffered = l[start_ind:]
+                    run = 0
+                    break
+                # else, just keep reading in peptides from the binary file until
+                # we get within the mass range
+
+        curr_peps = mass_filter(d, m, args.precursor_window, args.ppm)
+        if curr_peps:
+            d_out[sid, c] = curr_peps
+
+        if args.recalibrate:
+            # load in recalibration decoys
+            run = 1
+            # see if old decoys are within mass range
+            if recal_d:
+                if recal_d[-1][0] < lowerMassKey: # none are in mass range
+                    del recal_d[:]
+                elif recal_d[0][0] > upperMassKey: # this shouldn't happen since this would mean all 
+                    # subsequent peptides to be read are also greater
+                    print "Cached peptides are greater than current precursor mass, exitting"
+                    exit(-1)
+                else: # some must be in mass range, determine which and clear some of the buffer
+                    # do bisection
+                    prune_peptide_buffer(recal_d, lowerMassKey)
+
+            # first checked buffered peptides
+            if recal_d_l_buffered:
+                start_ind = 0
+                end_ind = stst.size
+                for i in range(len(recal_d_l_buffered) / stst.size):
+                    p = stst.unpack(recal_d_l_buffered[start_ind:end_ind])
+                    start_ind += stst.size
+                    end_ind += stst.size
+                    if p[0] >= lowerMassKey and p[0] <= upperMassKey:
+                        recal_d.append(p)
+                    elif p[0] > upperMassKey: # we're outside the mass tolerance range now
+                        start_ind -= stst.size
+                        recal_d_l_buffered = recal_d_l_buffered[start_ind:]                    
+                        run = 0
+                        break
+                    # else, keep checking the buffered peptides til we get into the mass range
+            while run:
+                # read in buffer of peptides
+                l = recal_dfid.read(stst.size * buff)
+                if not l:
+                    run = 0
+                    break
+                start_ind = 0
+                end_ind = stst.size
+                recal_d_l_buffered = ''
+                for i in range(len(l) / stst.size):
+                    p = stst.unpack(l[start_ind:end_ind])
+                    start_ind += stst.size
+                    end_ind += stst.size
+                    if p[0] >= lowerMassKey and p[0] <= upperMassKey:
+                        recal_d.append(p)
+                    elif p[0] > upperMassKey: # stop reading in peptides, we're outside mass tolerance range now
+                        start_ind -= stst.size
+                        recal_d_l_buffered = l[start_ind:]
+                        run = 0
+                        break
+                    # else, just keep reading in peptides from the binary file until
+                    # we get within the mass range
+
+            curr_peps = mass_filter(recal_d, m, args.precursor_window, args.ppm)
+            if curr_peps:
+                recal_d_out[sid, c] = curr_peps
+
+        spectra_app.append(spectra[sid])
+        # if sid not in sid_visited:
+        #     spectra_app.append(spectra[sid])
+        #     sid_visited.add(sid)
+
+        buffered_spec += 1
+
+        if buffered_spec == spectra_buffer:
+            if args.recalibrate:
+                data = { 'spectra' : spectra_app,
+                         'target' : t_out,
+                         'decoy' : d_out,
+                         'recal_decoy' : recal_d_out}
+            else:
+                data = { 'spectra' : spectra_app,
+                         'target' : t_out,
+                         'decoy' : d_out}
+            yield data
+
+            # clear buffers
+            d_out.clear()
+            t_out.clear()
+            del spectra_app[:]
+            buffered_spec = 0 # this will have been yielded at the end of the previous iteration
+
+            if args.recalibrate:
+                recal_d_out.clear()
+
+    tfid.close()
+    dfid.close()
+    if args.recalibrate:
+        recal_dfid.close()
+
+    if buffered_spec:
+        if args.recalibrate:
+            data = { 'spectra' : spectra_app,
+                     'target' : t_out,
+                     'decoy' : d_out,
+                     'recal_decoy' : recal_d_out}
+        else:
+            data = { 'spectra' : spectra_app,
+                     'target' : t_out,
+                     'decoy' : d_out}
         yield data        
 
 def candidate_spectra_memeffic_generator(args, r,

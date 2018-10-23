@@ -20,7 +20,7 @@ import shlex
 import math
 import pyFiles.psm as psm
 
-from dripDigest import (check_arg_trueFalse,
+from digest import (check_arg_trueFalse,
                         parse_var_mods)
 from random import shuffle
 from shutil import rmtree

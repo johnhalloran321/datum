@@ -24,7 +24,7 @@ import copy
 
 from shutil import rmtree
 from dripExtract import runDripExtract
-from dripDigest import parse_var_mods
+from digest import parse_var_mods
 from pyFiles.spectrum import MS2Spectrum
 from pyFiles.peptide import Peptide, amino_acids_to_indices
 from pyFiles.normalize import pipeline

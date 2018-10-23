@@ -30,7 +30,7 @@ from pyFiles.peptide import Peptide, amino_acids_to_indices
 from pyFiles.normalize import pipeline
 from pyFiles.pfile.wrapper import PFile
 # from pyFiles.args import make_dir_callback
-from dripDigest import (check_arg_trueFalse,
+from digest import (check_arg_trueFalse,
                         parse_var_mods)
 from pyFiles.dripEncoding import (create_drip_structure,
                                   create_drip_master,

@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-# Written by John Halloran <halloj3@ee.washington.edu>
+# Written by John Halloran <jthalloran@ucdavis.edu>
 #
-# Copyright (C) 2016 John Halloran
+# Copyright (C) 2018 John Halloran
 # Licensed under the Open Software License version 3.0
 # See COPYING or http://opensource.org/licenses/OSL-3.0
 
@@ -12,6 +12,64 @@ NUMTHREADS=15
 #################################################################
 ################## Low-resolution MS2 searches
 #################################################################
+
+############################################
+######### Didea training and testing
+############################################
+function trainDidea {
+    CHARGE="2"
+    MS2=data/riptideTrainingData/strict-orbitrap.ms2
+    PSMS=data/riptideTrainingData/strict-orbitrap.psm
+    OUTPUT="charge${CHARGE}-lambdas.txt"
+
+    echo "Searching spectra"
+    time python -OO dideaTrain.py \
+	--lmb0Prior 0.383435 \
+	--charge $CHARGE \
+    	--spectra $MS2 \
+    	--output $OUTPUT \
+	--psms $PSMS
+
+    CHARGE="3"
+    MS2=data/riptideTrainingData/strict-orbitrap-ch3.ms2
+    PSMS=data/riptideTrainingData/strict-orbitrap-ch3.psm
+    OUTPUT="charge${CHARGE}-lambdas.txt"
+
+    echo "Searching spectra"
+    time python -OO dideaTrain.py \
+	--lmb0Prior 0.367028 \
+	--charge $CHARGE \
+    	--spectra $MS2 \
+    	--output $OUTPUT \
+	--psms $PSMS
+}
+
+function testDidea {
+    echo "Digesting protein database"
+    python -OO digest.py \
+    	--min-length 6 \
+    	--fasta data/yeast.fasta \
+    	--enzyme 'trypsin/p' \
+    	--monoisotopic-precursor true \
+    	--missed-cleavages 0 \
+    	--digestion 'full-digest'
+
+    CH2="charge2-lambdas.txt"
+    CH3="charge3-lambdas.txt"
+
+    org=yeast
+    echo "Searching spectra"
+    time python -OO dideaSearch.py \
+    	--digest-dir 'digest-output' \
+    	--precursor-window 3.0 \
+    	--top-match 1 \
+	--charges all \
+    	--spectra data/test.ms2 \
+    	--output dideaSearch-test-output \
+	--learned-lambdas-ch2 $CH2 \
+	--learned-lambdas-ch3 $CH3 \
+	--num-threads 1
+}
 
 ############################################
 ######### train and search
@@ -26,7 +84,7 @@ function trainTest {
     	--mods-spec 'C+57.0214'
 
     echo "Digesting protein database"
-    python -OO dripDigest.py \
+    python -OO digest.py \
     	--min-length 6 \
     	--fasta data/yeast.fasta \
     	--enzyme 'trypsin/p' \
@@ -36,7 +94,7 @@ function trainTest {
 
     echo "Searching spectra"
     time python -OO dripSearch.py \
-    	--digest-dir 'dripDigest-output' \
+    	--digest-dir 'digest-output' \
     	--precursor-window 3.0 \
     	--learned-means dripLearned.means \
     	--learned-covars dripLearned.covars \
@@ -53,7 +111,7 @@ function trainTest {
 function testBeam {
     BEAM=75
     echo "Digesting protein database"
-    python -OO dripDigest.py \
+    python -OO digest.py \
     	--min-length 6 \
     	--fasta data/yeast.fasta \
     	--enzyme 'trypsin/p' \
@@ -62,7 +120,7 @@ function testBeam {
     	--digestion 'full-digest'
 
     time python -OO dripSearch.py \
-    	--digest-dir 'dripDigest-output' \
+    	--digest-dir 'digest-output' \
     	--precursor-window 3.0 \
     	--learned-means dripLearned.means \
     	--learned-covars dripLearned.covars \
@@ -102,7 +160,7 @@ function trainTestCh3 {
     	--mods-spec 'C+57.0214'
 
     echo "Digesting protein database"
-    python -OO dripDigest.py \
+    python -OO digest.py \
     	--min-length 6 \
     	--fasta data/yeast.fasta \
     	--enzyme 'trypsin/p' \
@@ -112,7 +170,7 @@ function trainTestCh3 {
 
     echo "Searching spectra"
     time python -OO dripSearch.py \
-    	--digest-dir 'dripDigest-output' \
+    	--digest-dir 'digest-output' \
     	--precursor-window 3.0 \
     	--learned-means dripLearned-ch3.means \
     	--learned-covars dripLearned-ch3.covars \
@@ -137,7 +195,7 @@ function trainTestRecalibrate {
     	--mods-spec 'C+57.0214'
 
     echo "Digesting protein database"
-    python -OO dripDigest.py \
+    python -OO digest.py \
     	--recalibrate True \
     	--min-length 6 \
     	--fasta data/yeast.fasta \
@@ -148,7 +206,7 @@ function trainTestRecalibrate {
 
     echo "Searching spectra"
     python -OO dripSearch.py \
-    	--digest-dir 'dripDigest-output' \
+    	--digest-dir 'digest-output' \
     	--precursor-window 3.0 \
     	--learned-means dripLearned.means \
     	--learned-covars dripLearned.covars \
@@ -162,20 +220,20 @@ function trainTestRecalibrate {
 ######### search high-res MS2 spectra
 ############################################
 function dripSearchHighres {
-    # # digest directory
-    # ./dripDigest.py  \
-    # 	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
-    # 	--min-length 7 \
-    # 	--custom-enzyme '[K]|[X]' \
-    # 	--mods-spec 'C+57.0214,K+229.16293' \
-    # 	--nterm-peptide-mods-spec 'X+229.16293' \
-    # 	--monoisotopic-precursor true \
-    # 	--recalibrate True \
-    # 	--peptide-buffer 1000 \
-    # 	--decoys True
+    # digest directory
+    ./digest.py  \
+    	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
+    	--min-length 7 \
+    	--custom-enzyme '[K]|[X]' \
+    	--mods-spec 'C+57.0214,K+229.16293' \
+    	--nterm-peptide-mods-spec 'X+229.16293' \
+    	--monoisotopic-precursor true \
+    	--recalibrate True \
+    	--peptide-buffer 1000 \
+    	--decoys True
 
     python -OO dripSearch.py \
-	--digest-dir 'dripDigest-output' \
+	--digest-dir 'digest-output' \
 	--precursor-window 50 \
 	--num-threads $NUMTHREADS \
 	--high-res-ms2 true \
@@ -183,8 +241,6 @@ function dripSearchHighres {
 	--precursor-filter 'True' \
 	--spectra data/malariaTest.ms2 \
 	--output dripSearch-smallMalariaTest-output
-	# --spectra data/malariaTest.ms2 \
-	# --spectra /home/jthalloran/ms2Spectra/malaria/malaria.ms2 \
 }
 
 ############################################
@@ -193,7 +249,7 @@ function dripSearchHighres {
 ############################################
 function dripSearchHighresVarMods {
     # digest directory
-    ./dripDigest.py  \
+    ./digest.py  \
     	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
     	--min-length 7 \
     	--custom-enzyme '[K]|[X]' \
@@ -204,7 +260,7 @@ function dripSearchHighresVarMods {
     	--decoys True
 
     python -OO dripSearch.py \
-	--digest-dir 'dripDigest-output' \
+	--digest-dir 'digest-output' \
 	--precursor-window 50 \
 	--num-threads $NUMTHREADS \
 	--high-res-ms2 true \
@@ -245,7 +301,7 @@ function clusterTest {
     else
 
 	echo "Digesting protein database"
-	python -OO dripDigest.py \
+	python -OO digest.py \
     	    --min-length 6 \
     	    --fasta data/yeast.fasta \
     	    --enzyme 'trypsin/p' \
@@ -255,7 +311,7 @@ function clusterTest {
 
 	echo "Creating cluster jobs"
 	python -OO dripSearch.py \
-    	    --digest-dir 'dripDigest-output' \
+    	    --digest-dir 'digest-output' \
     	    --precursor-window 3.0 \
     	    --learned-means dripLearned.means \
     	    --learned-covars dripLearned.covars \
@@ -305,7 +361,6 @@ function clusterTest {
 #     $dripTest
 # done
 
-# dripExtractLowRes
-# dripSearchHighresVarMods
-# dripExtractHighResVarMods
-dripSearchHighres
+#####  Didea
+# trainDidea
+testDidea
