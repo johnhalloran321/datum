@@ -24,7 +24,7 @@ dideaSearch.py), no extra software aside from Python 2.7 is required and the mod
 will work after downloading.  For information on using DRIP, see below.
 
 ---------------------------------------------------
------------------ Disclaimer
+----------------- Note
 ---------------------------------------------------
 Didea is under development and currently only supports low-res MS2 searches and 
 parameter learning without peptide modifications.  DATUM will soon be updated when
