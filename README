@@ -26,9 +26,10 @@ will work after downloading.  For information on using DRIP, see below.
 ---------------------------------------------------
 ----------------- Note
 ---------------------------------------------------
-Didea is under development and currently only supports low-res MS2 searches and 
-parameter learning without peptide modifications.  DATUM will soon be updated when
-these restrictions are loosened.
+The Didea modules of DATUM are currently under rapid development and thus in their 
+early stages.  DATUM will be updated shortly as new Didea features are added (i.e., 
+support for high-res MS2 search, parameter learning with peptide modifications, 
+feature extraction, etc.).
 
 ===================================================
 ==========  Info for DRIP Tools
