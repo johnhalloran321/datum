@@ -1,4 +1,4 @@
-DATUM - DBN Analysis Tools to Understand MS/MS data
+DATUM - DBN Analysis Toolkit to Understand Mass spectra
 ===================================================
 DATUM is a toolkit consisting of several dynamic Bayesian networks (DBNs) 
 and associated software tools to analyze tandem mass (MS/MS) spectra.  The toolkit
