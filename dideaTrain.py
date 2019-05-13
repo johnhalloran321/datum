@@ -90,6 +90,9 @@ def parseInputOptions():
     help_l2Reg = '<T|F> - L2-regularize training objective function'
     trainingParamsGroup.add_argument('--l2Reg', type = str, action = 'store', 
                                      default = 'true', help = help_l2Reg)
+    help_cve = '<T|F> - Use general CVE emission'
+    trainingParamsGroup.add_argument('--cve', type = str, action = 'store', 
+                                     default = 'true', help = help_cve)
     help_alpha = '<float> - L2-regularization strength.'
     trainingParamsGroup.add_argument('--alpha', type = float, action = 'store', 
                                      default = 0.4, help = help_alpha)
@@ -189,6 +192,81 @@ def dideaShiftDotProducts(peptide, charge, bins, num_bins):
         shiftDotProducts[ind] = bySum
     return shiftDotProducts
 
+def dideaShiftSepDotProducts(peptide, charge, bins, num_bins):
+    """ For observed spectrum s and peptide x with corresponding b- and y-ion vectors b and y, calculate (b'+y')^T(s_\tau - s),
+    where s_\tau is s shifted by \tau units, and b'/y' are boolean vectors of length len(s) with ones only in indices corresponding to 
+    b and y-ions
+    """
+    (bions, yions) = byIons(peptide,charge)
+    tauCard = 75.0
+    lastBin = num_bins-1
+    # output - vector corresponding to above dot-product per every shift
+    shiftSepDotProducts = [[0.0, 0.0] for _ in range(int(tauCard))]
+
+    for ind,tau in enumerate(range(-37,38)):
+        bSum = 0
+        ySum = 0
+        for b,y in zip(bions,yions):
+            bt = b-tau
+            yt = y-tau
+            # start with b-ions
+            if bt < num_bins: # make sure we haven't shifted outside of the bins
+                if bt >= 0: # make sure we haven't shifted to far left
+                    if b < num_bins: # make sure original b-ion was in range
+                        bSum += bins[bt]-bins[b]
+                    else: # original b-ion was out of range
+                        bSum += bins[bt]
+                else: # we've shifted too far left
+                    if b < num_bins: # make sure original b-ion was in range
+                        bSum -= bins[b]
+            else: # check original b-ion
+                if b < num_bins: # make sure original b-ion was in range
+                    bSum -= bins[b]
+
+            # now y-ions
+            if yt < num_bins: # make sure we haven't shifted outside of the bins
+                if yt >= 0: # make sure we haven't shifted to far left
+                    if y < num_bins: # make sure original b-ion was in range
+                        ySum += bins[yt]-bins[y]
+                    else: # original b-ion was out of range
+                        ySum += bins[yt]
+                else: # we've shifted too far left
+                    if b < num_bins: # make sure original b-ion was in range
+                        ySum -= bins[y]
+            else: # check original y-ion
+                if y < num_bins: # make sure original b-ion was in range
+                    ySum -= bins[y]
+        shiftSepDotProducts[ind][0] = bSum
+        shiftSepDotProducts[ind][1] = ySum
+    return shiftSepDotProducts
+
+def dideaShiftAllIons(peptide, charge, bins, num_bins):
+    """ For observed spectrum s and peptide x with corresponding b- and y-ion vectors b and y, calculate (b'+y')^T(s_\tau - s),
+    where s_\tau is s shifted by \tau units, and b'/y' are boolean vectors of length len(s) with ones only in indices corresponding to 
+    b and y-ions
+    """
+    (bions, yions) = byIons(peptide,charge)
+    tauCard = 75.0
+    lastBin = num_bins-1
+    # output - vector corresponding to above dot-product per every shift
+    peakList = []
+
+    for ind,tau in enumerate(range(-37,38)):
+        ionIntensities = []
+        bSum = 0
+        ySum = 0
+        for b,y in zip(bions,yions):
+            bt = b-tau
+            yt = y-tau
+            # start with b-ions
+            if bt>= 0 and bt < num_bins: # make sure we haven't shifted outside of the bins
+                ionIntensities.append(bins[bt])
+            if yt>= 0 and yt < num_bins: # make sure we haven't shifted outside of the bins
+                ionIntensities.append(bins[yt])
+        peakList.append(ionIntensities)
+
+    return peakList
+
 def genDideaTrainingData(options):
     """Create didea log-sum-exp training data"""
     output = {}
@@ -207,15 +285,6 @@ def genDideaTrainingData(options):
     if len(spectra) == 0:
         print >> sys.stderr, 'There are no spectra with charge_line (+%d).' % vc
         exit(-1)
-
-    # # Load spectra
-    # spectra, _, _, validcharges = load_spectra(options.spectra,
-    #                                            options.charge)
-    # vc = validcharges.pop()
-
-    # if len(spectra) == 0:
-    #     print >> sys.stderr, 'There are no spectra with supplied charges.'
-    #     exit(-1)
 
     psm_sid = re.compile('\d+')
     psm_peptide = re.compile('[a-zA-Z]+$')
@@ -240,11 +309,26 @@ def genDideaTrainingData(options):
         sidsPer.append(sid)
         if (ind  != -1):
             p = Peptide(targets[ind][1])
-            for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
-                output[spec_ind, tau] = tauProd
+            if not options.cve:
+                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
+                    output[spec_ind, tau] = tauProd
+            else:
+                for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins))):
+                    output[spec_ind, tau] = peaks
+            # else:
+            #     for tau, tauProd in zip(range(-37,38),dideaShiftSepDotProducts(p, vc, bins, len(bins))):
+            #         output[spec_ind, tau] = tauProd
 
     # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
     return (len(spectra),output, sidsPer)
+
+def cve0(theta, s):
+    # from NeurIPS 2018 paper:
+    return math.exp(theta * s)
+
+def cve_grad0(theta, s):
+    # from NeurIPS 2018 paper:
+    return s * math.exp(theta * s)
 
 def batchFuncEvalLambdas(lambdas, options, numData, data):
     logSumExp = 0.0
@@ -261,9 +345,9 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
         for tau in range(-37,38):
             currx = data[i,tau]
             lmb = lambdas[tau]
-            sumExp += math.exp(lmb*currx)
-            numer[tau] = currx*math.exp(lmb*currx)
-            denom += math.exp(lmb*currx)
+            sumExp += cve0(lmb, currx)
+            numer[tau] = cve_grad0(lmb, currx)
+            denom += cve0(lmb ,currx)
             # print currx
         logSumExp += math.log(sumExp)
         for tau in range(-37,38):
@@ -279,6 +363,62 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
                 grad[tau] += (options.alpha/2.0 * lambdas[tau]) / float(numData)
         # exit(-1)
     return grad, logSumExp
+
+def cve(theta, s):
+    # try quadratic
+    return 0.5 * (theta * s) ** 2 + 1.0
+    # return math.exp(sum([math.log(0.5 * (theta * si) ** 2 + 1.0) for si in s]))
+
+def cve_grad(theta, s):
+    # from NeurIPS 2018 paper:
+    # return s * math.exp(theta * s)
+    # try quadratic
+    return theta * s * s
+
+def cve_general_ll(lambdas, options, numData, data):
+    # calculate log-likelihood over the training data
+    # data is serialized as: data[sid,\tau] = list of peak intensities
+    # for shift \tau of PSM sid
+    totalLogProbEv = 0.0
+    grad = {}
+    numer = {}
+    for tau in range(-37,38):
+        grad[tau] = 0.0
+        numer[tau] = 0.0
+
+    for i in range(numData):
+        # print "sid=%d" % sids[i]
+        denom = 0.0
+        probEv = 0.0
+        for tau in range(-37,38):
+            peaklist =  data[i,tau]
+            lmb = lambdas[tau]
+            logLikelihood = 0.0
+            g = 0.0
+            for peak in peaklist:
+                prob = cve(lmb, peak)
+                deriv = cve_grad(lmb, peak)
+                logLikelihood += math.log(prob)
+                g += deriv / prob
+            likelihood = math.exp(logLikelihood)    
+            numer[tau] = likelihood * g
+            probEv += likelihood # probability of evidence
+            denom += likelihood
+            # print currx
+        totalLogProbEv += math.log(probEv)
+        for tau in range(-37,38):
+            if numer[tau] == 0.0:
+                if options.l2Reg:
+                    grad[tau] += (options.alpha/2.0 * lambdas[tau]) / float(numData)
+                continue
+            if numer[tau] < 0.0:
+                grad[tau] -= math.exp(math.log(-numer[tau])-math.log(denom)) / float(numData)
+            else:
+                grad[tau] += math.exp(math.log(numer[tau])-math.log(denom)) / float(numData)
+            if options.l2Reg:
+                grad[tau] += (options.alpha/2.0 * lambdas[tau]) / float(numData)
+        # exit(-1)
+    return grad, totalLogProbEv
 
 def batchFuncEvalLambdas_mp(lambdas, options, numData, data):
     # calculate indices to be evaluated in partition
@@ -362,10 +502,16 @@ def batchGradientAscentShiftPrior(options):
     # initialize parameters
     lambdas = {}
     for tau in range(-37,38):
-        lambdas[tau] = 0.0
+        # lambdas[tau] = 0.0
+        lambdas[tau] = 1.0
 
     # take first step
-    grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+    if not options.cve:
+        # optimized: this is actually a CVE, but the structure of this CVE
+        # is exploited to significantly optimize learning
+        grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+    else:
+        grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
     # grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data)
     optEval = -logSumExp
     l2 = 0.0
@@ -379,7 +525,12 @@ def batchGradientAscentShiftPrior(options):
     while(l2 > thresh):
         if iters > options.maxIters:
             break
-        grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+        if not options.cve:
+            # optimized: this is actually a CVE, but the structure of this CVE
+            # is exploited to significantly optimize learning
+            grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+        else:
+            grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
         # grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data)
         optEval = -logSumExp
         l2 = 0.0
