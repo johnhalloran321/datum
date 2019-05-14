@@ -17,7 +17,7 @@ import cPickle as pickle
 import multiprocessing as mp
 import struct
 import itertools
-import numpy
+import numpy as np
 import math
 import random
 import re
@@ -92,7 +92,7 @@ def parseInputOptions():
                                      default = 'true', help = help_l2Reg)
     help_cve = '<T|F> - Use general CVE emission'
     trainingParamsGroup.add_argument('--cve', type = str, action = 'store', 
-                                     default = 'true', help = help_cve)
+                                     default = 'false', help = help_cve)
     help_alpha = '<float> - L2-regularization strength.'
     trainingParamsGroup.add_argument('--alpha', type = float, action = 'store', 
                                      default = 0.4, help = help_alpha)
@@ -122,6 +122,7 @@ def process_args(args):
 
     # set true or false strings to booleans
     args.l2Reg = check_arg_trueFalse(args.l2Reg)
+    args.cve = check_arg_trueFalse(args.cve)
     # make sure number of input threads does not exceed number of supported threads
     if args.num_threads > mp.cpu_count():
         args.num_threads = mp.cpu_count()
@@ -263,6 +264,8 @@ def dideaShiftAllIons(peptide, charge, bins, num_bins):
                 ionIntensities.append(bins[bt])
             if yt>= 0 and yt < num_bins: # make sure we haven't shifted outside of the bins
                 ionIntensities.append(bins[yt])
+            if not ionIntensities:
+                ionIntensities.append(0.0)
         peakList.append(ionIntensities)
 
     return peakList
@@ -313,12 +316,80 @@ def genDideaTrainingData(options):
                 for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
                     output[spec_ind, tau] = tauProd
             else:
-                for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins))):
-                    output[spec_ind, tau] = peaks
+                # output[spec_ind] = np.array([peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins))])
+                # output[spec_ind] = [peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins))]
+                a = [peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins))]
+                # pad uneven peak lists
+                max_len = np.array([len(array) for array in a]).max()
+                default_value = 0
+                # note: have to work with transpose of the data matrix, so that we can do a simple
+                # element-wise multiplication with the theta vector, i.e., so that the data matrix
+                # has |\tau| columns
+                output[spec_ind] = np.transpose([np.pad(array, (0, max_len - len(array)), mode='constant', constant_values=default_value) for array in a])
+                # if len(output[spec_ind].shape) == 1:
+                #     print p
+                # else:
+                #     print spec_ind, output[spec_ind].shape
+                
+                # for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins))):
+                    # output[spec_ind, tau] = peaks
             # else:
             #     for tau, tauProd in zip(range(-37,38),dideaShiftSepDotProducts(p, vc, bins, len(bins))):
             #         output[spec_ind, tau] = tauProd
 
+    # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
+    return (len(spectra),output, sidsPer)
+
+def genDideaTrainingData_par(options, numThreads):
+    """Create didea log-sum-exp training data"""
+    tbl = 'monoisotopic'
+    preprocess = pipeline(options.normalize)
+    # Generate the histogram bin ranges
+    ranges = simple_uniform_binwidth(0, options.max_mass, options.num_bins,
+                                     bin_width = 1.0)
+
+    vc = int(options.charge)
+    validcharges = set([vc])
+
+    spectra = list(s for s in MS2Iterator(options.spectra, False) if
+                   set(s.charges) & validcharges)
+
+    if len(spectra) == 0:
+        print >> sys.stderr, 'There are no spectra with charge_line (+%d).' % vc
+        exit(-1)
+
+    psm_sid = re.compile('\d+')
+    psm_peptide = re.compile('[a-zA-Z]+$')
+    #generate vector of sids/peptides
+    print options.psms
+    f = open(options.psms, "r")
+    targets = [(int(l["Scan"]), l["Peptide"]) for l in csv.DictReader(f, delimiter = '\t', skipinitialspace = True)]
+# Scan	Peptide	Charge
+    sids = []
+    for (st,pt) in targets: sids.append(st)
+
+    output = [{} for _ in range(numThreads)]
+    sidsPer = [0 for _ in range(numThreads)]
+    for spec_ind,s in enumerate(spectra):
+        output_ind = min(int(spec_ind / numThreads), numThreads-1)
+        sid = s.spectrum_id
+        preprocess(s)
+        # Generate the spectrum observations.
+        truebins = histogram_spectra(s, ranges, max, use_mz = True)
+        bins = bins_to_vecpt_ratios(truebins, 'intensity', 0.0)
+        # find psm
+        ind = find_sid(sids, s.spectrum_id)
+
+        # sidsPer.append(sid)
+        sidsPer[output_ind] += 1
+        if (ind  != -1):
+            p = Peptide(targets[ind][1])
+            if not options.cve:
+                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
+                    output[output_ind][sidsPer[output_ind], tau] = tauProd
+            else:
+                for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins))):
+                    output[output_ind][sidsPer[output_ind], tau] = peaks
     # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
     return (len(spectra),output, sidsPer)
 
@@ -345,9 +416,9 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
         for tau in range(-37,38):
             currx = data[i,tau]
             lmb = lambdas[tau]
-            sumExp += cve0(lmb, currx)
-            numer[tau] = cve_grad0(lmb, currx)
-            denom += cve0(lmb ,currx)
+            sumExp += math.exp(lmb*currx)
+            numer[tau] = currx*math.exp(lmb*currx)
+            denom += math.exp(lmb*currx)
             # print currx
         logSumExp += math.log(sumExp)
         for tau in range(-37,38):
@@ -390,57 +461,109 @@ def cve_general_ll(lambdas, options, numData, data):
         # print "sid=%d" % sids[i]
         denom = 0.0
         probEv = 0.0
-        for tau in range(-37,38):
-            peaklist =  data[i,tau]
-            lmb = lambdas[tau]
-            logLikelihood = 0.0
-            g = 0.0
-            for peak in peaklist:
-                prob = cve(lmb, peak)
-                deriv = cve_grad(lmb, peak)
-                logLikelihood += math.log(prob)
-                g += deriv / prob
-            likelihood = math.exp(logLikelihood)    
-            numer[tau] = likelihood * g
-            probEv += likelihood # probability of evidence
-            denom += likelihood
+        probs = cve(lambdas, data[i]) # matrix
+        derivs = cve_grad(lambdas, data[i]) # matrix
+        # since we transposed the data matrix to begin with, sum
+        # along the columns of the above matrices
+        likelihoods = np.exp(np.sum(np.log(probs), axis=0)) # column-wise sum
+        g = np.sum(derivs / probs, axis=0) # column-wise sum
+        # print lambdas.shape, data[i].shape, probs.shape, likelihoods.shape, g.shape
+        probEv = np.sum(likelihoods)
+        denom = probEv
+        for ind,tau in enumerate(range(-37,38)):
+            # peaks = data[i,tau]
+            # lmb = lambdas[tau]
+
+            # logLikelihood = 0.0
+            # g = 0.0
+            # for peak in peaks:
+            #     prob = cve(lmb, peak)
+            #     deriv = cve_grad(lmb, peak)
+            #     logLikelihood += math.log(prob)
+            #     g += deriv / prob
+            # likelihood = math.exp(logLikelihood)
+
+            # probs = cve(lmb, peaks)
+            # derivs = cve_grad(lmb, peaks)
+            # likelihood = np.exp(sum(np.log(probs)))
+            # g = sum(derivs / probs)
+
+            numer[tau] = likelihoods[ind] * g[ind]
+            # probEv += likelihood # probability of evidence
+            # denom += likelihood
             # print currx
         totalLogProbEv += math.log(probEv)
-        for tau in range(-37,38):
+        for ind,tau in enumerate(range(-37,38)):
             if numer[tau] == 0.0:
                 if options.l2Reg:
-                    grad[tau] += (options.alpha/2.0 * lambdas[tau]) / float(numData)
+                    grad[tau] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
                 continue
             if numer[tau] < 0.0:
                 grad[tau] -= math.exp(math.log(-numer[tau])-math.log(denom)) / float(numData)
             else:
                 grad[tau] += math.exp(math.log(numer[tau])-math.log(denom)) / float(numData)
             if options.l2Reg:
-                grad[tau] += (options.alpha/2.0 * lambdas[tau]) / float(numData)
+                grad[tau] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
         # exit(-1)
     return grad, totalLogProbEv
 
-def batchFuncEvalLambdas_mp(lambdas, options, numData, data):
-    # calculate indices to be evaluated in partition
-    dataPoints = range(numData)
-    random.shuffle(dataPoints)
-    # calculate num spectra to score per thread
-    numThreads = min(mp.cpu_count() - 1, options.num_threads)
-    inc = int(numData / numThreads)
-    partitions = []
-    l = 0
-    r = inc
-    for i in range(numThreads-1):
-        partitions.append(dataPoints[l:r])
-        l += inc
-        r += inc
-    partitions.append(dataPoints[l:])
+def batchFuncEvalLambdas_mp(lambdas, options, numData, data, partitions, numThreads):
+    # # calculate indices to be evaluated in partition
+    # dataPoints = range(numData)
+    # random.shuffle(dataPoints)
+    # # calculate num spectra to score per thread
+    # inc = int(numData / numThreads)
+    # partitions = []
+    # l = 0
+    # r = inc
+    # for i in range(numThreads-1):
+    #     partitions.append(dataPoints[l:r])
+    #     l += inc
+    #     r += inc
+    # partitions.append(dataPoints[l:])
 
     pool = mp.Pool(processes = numThreads)
     # perform map: distribute jobs to CPUs
-    results = [pool.apply_async(funcEvalLambdas,
-                                args=(lambdas, partitions[i], 
-                                      data, numData, options.alpha, options.l2Reg)) for i in range(numThreads)]
+
+    results = []
+    for i in range(numThreads):
+        res = pool.apply_async(funcEvalLambdas,
+                               args=(lambdas, partitions[i], 
+                                     data, numData, options.alpha, options.l2Reg))
+        results.append(res)
+
+    # results = [pool.apply_async(funcEvalLambdas,
+    #                             args=(lambdas, partitions[i], 
+    #                                   data, numData, options.alpha, options.l2Reg)) for i in range(numThreads)]
+
+    pool.close()
+    pool.join() # wait for jobs to finish before continuing
+
+    # reduce results
+    logSumExp = 0.0
+    grad = {}
+    for tau in range(-37,38):
+        grad[tau] = 0.0
+    for p in results:
+        (g,l) = p.get()
+        logSumExp += l
+        for tau in range(-37,38):
+            grad[tau] += g[tau]
+
+    return grad, logSumExp
+
+def batchFuncEvalLambdas_mpB(lambdas, options, numData, data, numThreads, numSamples):
+    pool = mp.Pool(processes = numThreads)
+    # perform map: distribute jobs to CPUs
+
+    results = []
+    for i in range(numThreads):
+        res = pool.apply_async(funcEvalLambdasB,
+                               args=(lambdas, data[i], numSamples[i], numData, options.alpha, options.l2Reg))
+        results.append(res)
+
+    # results = [pool.apply_async(funcEvalLambdasB,
+    #                             args=(lambdas, data[i], numSamples[i], numData, options.alpha, options.l2Reg)) for i in range(numThreads)]
 
     pool.close()
     pool.join() # wait for jobs to finish before continuing
@@ -489,9 +612,48 @@ def funcEvalLambdas(lambdas, dataPoints, data, numData, alpha = 0.4, l2Reg = Tru
                 grad[tau] += (alpha/2.0 * lambdas[tau]) / float(numData)
     return grad, logSumExp
 
+def funcEvalLambdasB(lambdas, dataPoints, data, numSamples, numData, alpha = 0.4, l2Reg = True):
+    logSumExp = 0.0
+    grad = {}
+    numer = {}
+    for tau in range(-37,38):
+        grad[tau] = 0.0
+        numer[tau] = 0.0
+
+    for i in range(numSamples):
+        denom = 0.0
+        sumExp = 0.0
+        for tau in range(-37,38):
+            currx = data[i,tau]
+            lmb = lambdas[tau]
+            sumExp += math.exp(lmb*currx)
+            numer[tau] = currx*math.exp(lmb*currx)
+            denom += math.exp(lmb*currx)
+        logSumExp += math.log(sumExp)
+        for tau in range(-37,38):
+            if numer[tau] == 0.0:
+                if l2Reg:
+                    grad[tau] += (alpha/2.0 * lambdas[tau]) / float(numData)
+                continue
+            if numer[tau] < 0.0:
+                grad[tau] -= math.exp(math.log(-numer[tau])-math.log(denom)) / float(numData)
+            else:
+                grad[tau] += math.exp(math.log(numer[tau])-math.log(denom)) / float(numData)
+            if l2Reg:
+                grad[tau] += (alpha/2.0 * lambdas[tau]) / float(numData)
+    return grad, logSumExp
+
 def batchGradientAscentShiftPrior(options):
-    """Run stochastic gradient ascent on the training data"""
+    """Run batch gradient ascent on the training data"""
+    numThreads = min(mp.cpu_count() - 1, options.num_threads)
     (numData, data, sids) = genDideaTrainingData(options)
+    # numData = []
+    # data = []
+    # sids = []
+    # if numThreads == 1:
+    #     (numData, data, sids) = genDideaTrainingData(options)
+    # else:
+    #     (numData, data, sids) = genDideaTrainingData_par(options, numThreads)
     optEval = 100.0
     optEvalPrev = float("-inf")
     thresh = options.thresh
@@ -499,24 +661,51 @@ def batchGradientAscentShiftPrior(options):
     lrate = options.lrate # learning rate
     iters = 0
 
+    if not options.cve:
+        print "Optimized training for CVE0"
+    parallel_partitions = []
+    if options.num_threads > 1:
+        # calculate indices to be evaluated in partition
+        dataPoints = range(numData)
+        random.shuffle(dataPoints)
+        # calculate num spectra to score per thread
+        # numThreads = min(mp.cpu_count() - 1, options.num_threads)
+        inc = int(numData / numThreads)
+        l = 0
+        r = inc
+        for i in range(numThreads-1):
+            parallel_partitions.append(dataPoints[l:r])
+            l += inc
+            r += inc
+        parallel_partitions.append(dataPoints[l:])
+
     # initialize parameters
     lambdas = {}
-    for tau in range(-37,38):
-        # lambdas[tau] = 0.0
-        lambdas[tau] = 1.0
+    if not options.cve:
+        for tau in range(-37,38):
+            # lambdas[tau] = 0.0
+            lambdas[tau] = 1.0
+    else:
+        lambdas = np.array([1.0 for _ in range(-37,38)])
 
     # take first step
     if not options.cve:
         # optimized: this is actually a CVE, but the structure of this CVE
         # is exploited to significantly optimize learning
-        grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+        if options.num_threads > 1:
+            grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data, parallel_partitions, numThreads)
+            # grad, logSumExp = batchFuncEvalLambdas_mpB(lambdas, options, numData, data, numThreads, sids)
+        else:
+            grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
     else:
         grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
-    # grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data)
     optEval = -logSumExp
     l2 = 0.0
-    for tau in range(-37,38):
-        lambdas[tau] -= lrate * grad[tau]
+    for ind,tau in enumerate(range(-37,38)):
+        if not options.cve:
+            lambdas[tau] -= lrate * grad[tau]
+        else:
+            lambdas[ind] -= lrate * grad[tau]
         l2 += grad[tau] * grad[tau]
     l2 = math.sqrt(l2)
     iters += 1
@@ -528,14 +717,20 @@ def batchGradientAscentShiftPrior(options):
         if not options.cve:
             # optimized: this is actually a CVE, but the structure of this CVE
             # is exploited to significantly optimize learning
-            grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+            if options.num_threads > 1:
+                grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data, parallel_partitions, numThreads)
+                # grad, logSumExp = batchFuncEvalLambdas_mpB(lambdas, options, numData, data, numThreads, sids)
+            else:
+                grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
         else:
             grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
-        # grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data)
         optEval = -logSumExp
         l2 = 0.0
-        for tau in range(-37,38):
-            lambdas[tau] -= lrate * grad[tau]
+        for ind, tau in enumerate(range(-37,38)):
+            if not options.cve:
+                lambdas[tau] -= lrate * grad[tau]
+            else:
+                lambdas[ind] -= lrate * grad[tau]
             l2 += grad[tau] * grad[tau]
         l2 = math.sqrt(l2)
         print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
@@ -544,9 +739,13 @@ def batchGradientAscentShiftPrior(options):
         optEval = -logSumExp
         # write output matrix
     fid = open(options.output, "w")
-    lambdas[0] = options.lmb0Prior
-    for tau in range(-37,38):
-        fid.write("%e\n" % lambdas[tau])
+    if not options.cve:
+        lambdas[0] = options.lmb0Prior
+    for ind, tau in enumerate(range(-37,38)):
+        if not options.cve:
+            fid.write("%e\n" % lambdas[tau])
+        else:
+            fid.write("%e\n" % lambdas[ind])
     fid.close()
 
 if __name__ == '__main__':

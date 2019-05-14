@@ -26,6 +26,7 @@ from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide #, amino_acids_to_indices
 from pyFiles.normalize import pipeline
 from pyFiles.constants import allPeps, mass_h, mass_h2o
+from dideaTrain import cve
 from digest import (check_arg_trueFalse,
                         parse_var_mods, load_digested_peptides_var_mods)
 from pyFiles.dideaEncoding import histogram_spectra, simple_uniform_binwidth, bins_to_vecpt_ratios
@@ -112,14 +113,19 @@ class dideaPSM(object):
         """Number of amino acids in the peptide. Read-only computed property."""
         return len(self.peptide)
 
-    def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, 
+    def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, cve,
                       mods = {}, ntermMods = {}, ctermMods = {},
                       varMods = {}, varNtermMods = {}, varCtermMods = {}):
-
-        (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
-                                                                                    self.charge,bins,num_bins, lambdas2, lambdas3, 
-                                                                                    mods, ntermMods, ctermMods, 
-                                                                                    varMods, varNtermMods, varCtermMods)
+        if not cve:
+            (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
+                                                                                        self.charge,bins,num_bins, lambdas2, lambdas3, 
+                                                                                        mods, ntermMods, ctermMods, 
+                                                                                        varMods, varNtermMods, varCtermMods)
+        else:
+            (foregroundScore,backgroundScore) = genCveBinBuffer(Peptide(self.peptide),
+                                                                self.charge,bins,num_bins, lambdas2, lambdas3, 
+                                                                mods, ntermMods, ctermMods, 
+                                                                varMods, varNtermMods, varCtermMods)
         self.score = foregroundScore - backgroundScore
         self.foreground_score = foregroundScore
         self.background_score = backgroundScore
@@ -230,6 +236,9 @@ def parseInputOptions():
     help_precursor_window_type = """<Da|ppm> - Specify the units for the window that is used to select peptides around the precursor mass location, either in Daltons (Da) or parts-per-million (ppm). Default=Da."""
     searchParamsGroup.add_argument('--precursor-window-type', type = str, action = 'store', default = 'Da', help = help_precursor_window_type)
     help_scan_id_list = """<string> - A file containing a list of scan IDs to search.  Default = <empty>."""
+    help_cve = '<T|F> - Use general CVE emission'
+    searchParamsGroup.add_argument('--cve', type = str, action = 'store', 
+                                   default = 'false', help = help_cve)
     searchParamsGroup.add_argument('--scan-id-list', type = str, action = 'store', default = '', help = help_scan_id_list)
     help_charges = """<comma-separated-integers|all> - precursor charges to search. To specify individual charges, list as comma-separated, e.g., 1,2,3 to search all charge 1, 2, or 3 spectra. Default=All."""
     searchParamsGroup.add_argument('--charges', type = str, action = 'store', default = 'All', help = help_charges)
@@ -305,6 +314,7 @@ def process_args(args):
 
     # set true or false strings to booleans
     # args.high_res_ms2 = check_arg_trueFalse(args.high_res_ms2)
+    args.cve = check_arg_trueFalse(args.cve)
     args.cluster_mode = check_arg_trueFalse(args.cluster_mode)
     args.write_cluster_scripts = check_arg_trueFalse(args.write_cluster_scripts)
     args.merge_cluster_results = check_arg_trueFalse(args.merge_cluster_results)
@@ -642,6 +652,82 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
 
     return (foregroundScore,backgroundScore)
 
+def logCve(theta, s):
+    return math.log(cve(theta,s))
+
+def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                    mods = {}, ntermMods = {}, ctermMods = {},
+                    varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+    """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
+    the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
+    """
+    lastBin = num_bins-1
+    tauCard = 75
+    if varMods or ntermVarMods or ctermVarMods:
+        byPairs = byIonPairsTauShift_var_mods(peptide,3, lastBin, tauCard)
+        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+    else:    
+        byPairs = byIonPairsTauShift(peptide,3, lastBin, tauCard, 
+                                     mods, ntermMods, ctermMods)
+        sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
+                                mods, ntermMods, ctermMods)
+
+
+    foregroundScore = 0.0
+    backgroundScore = 0.0
+    # first calculate foreground score
+    cLogProb = math.log(2.0)
+
+    l = learnedLambdas2[0]
+    h = 0.0
+    for b,y in zip(sB, sY):
+        h += logCve(l,bins[b]) + logCve(l,bins[y])
+    foregroundScore = math.exp(h)
+    currScore = 0.0
+    l = learnedLambdas3[0]
+    for by in byPairs:
+        h = 0.0
+        for b, y in by:
+            h += math.exp(logCve(l,bins[b]) + logCve(l,bins[y]) - cLogProb)
+        currScore += math.log(h)
+    foregroundScore += math.exp(currScore)
+
+    backgroundScore += foregroundScore
+    foregroundScore = math.log(foregroundScore)
+    # next, background score, eliminating iterating over \tau=0
+
+    for tau in range(-37,0):
+        l = learnedLambdas2[tau]
+        l2 = learnedLambdas2[-tau]
+        h = 0.0
+        h2 = 0.0
+        for b,y in zip(sB, sY):
+            h += logCve(l,bins[b+tau]) + logCve(l,bins[y+tau])
+            h2 += logCve(l2,bins[b-tau]) + logCve(l2,bins[y-tau])
+        backgroundScore += math.exp(h)
+        backgroundScore += math.exp(h2)
+        currScore = 0.0
+        currScore2 = 0.0
+        l = learnedLambdas3[tau]
+        l2 = learnedLambdas3[-tau]
+        for by in byPairs:
+            h = 0.0
+            h2 = 0.0
+            for b, y in by:
+                # h += math.exp(l * (bins[b+tau] + bins[y+tau])) / 2.0
+                # h2 += math.exp(l2 * (bins[b-tau] + bins[y-tau])) / 2.0
+                a = logCve(l,bins[b+tau]) + logCve(l,bins[y+tau]) - cLogProb
+                b = logCve(l,bins[b-tau]) + logCve(l,bins[y-tau]) - cLogProb
+                h += math.exp(a)
+                h2 += math.exp(b)
+            currScore += math.log(h)
+            currScore2 += math.log(h2)
+        backgroundScore += math.exp(currScore) + math.exp(currScore2)
+    # final background score is log \sum_{\tau} (B + Y)^T S_{\tau}
+    backgroundScore = math.log(backgroundScore)
+
+    return (foregroundScore,backgroundScore)
+
 def write_dideaPSM_to_ident_var_mods(fid, psm, mods, nterm_mods, cterm_mods,
                                      var_mods, nterm_var_mods, cterm_var_mods, 
                                      isVarMods = 0):
@@ -759,6 +845,7 @@ def score_didea_spectra(args, data, ranges,
        and running for all charge states in one go
     """
 
+    cve = args.cve
     scoref = lambda r: r.score
     top_psms = []
     nb = args.num_bins
@@ -825,7 +912,7 @@ def score_didea_spectra(args, data, ranges,
 
                 curr_psm = dideaPSM(t, sid, 't', charge, 
                                     tp[3], tp[4], varModSequence, tp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, 
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods)
                 charged_target_psms.append(curr_psm)
@@ -841,7 +928,7 @@ def score_didea_spectra(args, data, ranges,
                     theoSpecKey = d
                 curr_psm = dideaPSM(d, sid, 'd', charge, 
                                     dp[3], dp[4], varModSequence, dp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, 
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods)
                 charged_decoy_psms.append(curr_psm)
@@ -860,7 +947,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
        Decrease number of calls to GMTK by only calling once per spectrum
        and running for all charge states in one go
     """
-
+    cve = args.cve
     scoref = lambda r: r.score
     top_psms = []
     nb = args.num_bins
@@ -923,7 +1010,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
 
                 curr_psm = dideaPSM(t, sid, 't', charge, 
                                     tp[3], tp[4], varModSequence, tp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, 
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods)
                 charged_target_psms.append(curr_psm)
@@ -939,7 +1026,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                     theoSpecKey = d
                 curr_psm = dideaPSM(d, sid, 'd', charge, 
                                     dp[3], dp[4], varModSequence, dp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, 
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods)
                 charged_decoy_psms.append(curr_psm)
