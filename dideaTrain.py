@@ -451,10 +451,11 @@ def cve_general_ll(lambdas, options, numData, data):
     # data is serialized as: data[sid,\tau] = list of peak intensities
     # for shift \tau of PSM sid
     totalLogProbEv = 0.0
-    grad = {}
+    grad = np.array([0.0 for _ in range(-37,38)])
+    # grad = {}
     # numer = {}
-    for tau in range(-37,38):
-        grad[tau] = 0.0
+    # for tau in range(-37,38):
+    #     grad[tau] = 0.0
         # numer[tau] = 0.0
 
     for i in range(numData):
@@ -477,14 +478,14 @@ def cve_general_ll(lambdas, options, numData, data):
         for ind,tau in enumerate(range(-37,38)):
             if numer[ind] == 0.0:
                 if options.l2Reg:
-                    grad[tau] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
+                    grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
                 continue
             if numer[ind] < 0.0:
-                grad[tau] -= math.exp(math.log(-numer[ind])-math.log(probEv)) / float(numData)
+                grad[ind] -= math.exp(math.log(-numer[ind])-math.log(probEv)) / float(numData)
             else:
-                grad[tau] += math.exp(math.log(numer[ind])-math.log(probEv)) / float(numData)
+                grad[ind] += math.exp(math.log(numer[ind])-math.log(probEv)) / float(numData)
             if options.l2Reg:
-                grad[tau] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
+                grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
         # exit(-1)
     return grad, totalLogProbEv
 
@@ -685,9 +686,10 @@ def batchGradientAscentShiftPrior(options):
     for ind,tau in enumerate(range(-37,38)):
         if not options.cve:
             lambdas[tau] -= lrate * grad[tau]
+            l2 += grad[tau] * grad[tau]
         else:
-            lambdas[ind] -= lrate * grad[tau]
-        l2 += grad[tau] * grad[tau]
+            lambdas[ind] -= lrate * grad[ind]
+            l2 += grad[ind] * grad[ind]
     l2 = math.sqrt(l2)
     iters += 1
     print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
@@ -710,9 +712,10 @@ def batchGradientAscentShiftPrior(options):
         for ind, tau in enumerate(range(-37,38)):
             if not options.cve:
                 lambdas[tau] -= lrate * grad[tau]
+                l2 += grad[tau] * grad[tau]
             else:
-                lambdas[ind] -= lrate * grad[tau]
-            l2 += grad[tau] * grad[tau]
+                lambdas[ind] -= lrate * grad[ind]
+                l2 += grad[ind] * grad[ind]
         l2 = math.sqrt(l2)
         print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
         iters += 1
