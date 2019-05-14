@@ -683,14 +683,23 @@ def batchGradientAscentShiftPrior(options):
         grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
     optEval = -logSumExp
     l2 = 0.0
-    for ind,tau in enumerate(range(-37,38)):
-        if not options.cve:
+    if not options.cve:
+        for ind,tau in enumerate(range(-37,38)):
             lambdas[tau] -= lrate * grad[tau]
             l2 += grad[tau] * grad[tau]
-        else:
-            lambdas[ind] -= lrate * grad[ind]
-            l2 += grad[ind] * grad[ind]
-    l2 = math.sqrt(l2)
+        l2 = math.sqrt(l2)
+    else:
+        lambdas -= lrate * grad
+        l2 = math.sqrt(np.sum([grad * grad]))
+
+    # for ind,tau in enumerate(range(-37,38)):
+    #     if not options.cve:
+    #         lambdas[tau] -= lrate * grad[tau]
+    #         l2 += grad[tau] * grad[tau]
+    #     else:
+    #         lambdas[ind] -= lrate * grad[ind]
+    #         l2 += grad[ind] * grad[ind]
+    # l2 = math.sqrt(l2)
     iters += 1
     print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
 
@@ -709,14 +718,22 @@ def batchGradientAscentShiftPrior(options):
             grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
         optEval = -logSumExp
         l2 = 0.0
-        for ind, tau in enumerate(range(-37,38)):
-            if not options.cve:
+        if not options.cve:
+            for ind,tau in enumerate(range(-37,38)):
                 lambdas[tau] -= lrate * grad[tau]
                 l2 += grad[tau] * grad[tau]
-            else:
-                lambdas[ind] -= lrate * grad[ind]
-                l2 += grad[ind] * grad[ind]
-        l2 = math.sqrt(l2)
+            l2 = math.sqrt(l2)
+        else:
+            lambdas -= lrate * grad
+            l2 = math.sqrt(np.sum([grad * grad]))
+        # for ind, tau in enumerate(range(-37,38)):
+        #     if not options.cve:
+        #         lambdas[tau] -= lrate * grad[tau]
+        #         l2 += grad[tau] * grad[tau]
+        #     else:
+        #         lambdas[ind] -= lrate * grad[ind]
+        #         l2 += grad[ind] * grad[ind]
+        # l2 = math.sqrt(l2)
         print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
         iters += 1
 
