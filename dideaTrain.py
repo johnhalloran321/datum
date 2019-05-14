@@ -450,6 +450,7 @@ def cve_general_ll(lambdas, options, numData, data):
     # calculate log-likelihood over the training data
     # data is serialized as: data[sid,\tau] = list of peak intensities
     # for shift \tau of PSM sid
+    const = options.alpha/2.0 # * float(numData))
     totalLogProbEv = 0.0
     grad = np.array([0.0 for _ in range(-37,38)])
     # grad = {}
@@ -475,17 +476,18 @@ def cve_general_ll(lambdas, options, numData, data):
         # for ind,tau in enumerate(range(-37,38)):
         #     numer[tau] = likelihoods[ind] * g[ind]
         totalLogProbEv += math.log(probEv)
-        for ind,tau in enumerate(range(-37,38)):
-            if numer[ind] == 0.0:
-                if options.l2Reg:
-                    grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
-                continue
-            if numer[ind] < 0.0:
-                grad[ind] -= math.exp(math.log(-numer[ind])-math.log(probEv)) / float(numData)
-            else:
-                grad[ind] += math.exp(math.log(numer[ind])-math.log(probEv)) / float(numData)
-            if options.l2Reg:
-                grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
+        grad += (const * lambdas + numer / denom) / float(numData)
+        # for ind,tau in enumerate(range(-37,38)):
+        #     if numer[ind] == 0.0:
+        #         if options.l2Reg:
+        #             grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
+        #         continue
+        #     if numer[ind] < 0.0:
+        #         grad[ind] -= math.exp(math.log(-numer[ind])-math.log(probEv)) / float(numData)
+        #     else:
+        #         grad[ind] += math.exp(math.log(numer[ind])-math.log(probEv)) / float(numData)
+        #     if options.l2Reg:
+        #         grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
         # exit(-1)
     return grad, totalLogProbEv
 
