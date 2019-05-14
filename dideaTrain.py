@@ -473,8 +473,6 @@ def cve_general_ll(lambdas, options, numData, data):
         probEv = np.sum(likelihoods)
         denom = probEv
         numer = likelihoods * g
-        # for ind,tau in enumerate(range(-37,38)):
-        #     numer[tau] = likelihoods[ind] * g[ind]
         totalLogProbEv += math.log(probEv)
         grad += (const * lambdas + numer / denom) / float(numData)
         # for ind,tau in enumerate(range(-37,38)):

@@ -17,7 +17,7 @@ import cPickle as pickle
 import multiprocessing as mp
 import struct
 import itertools
-import numpy
+import numpy as np
 import math
 import random
 import re
@@ -436,6 +436,111 @@ def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
 
     return byPairs
 
+def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
+                              mods = {}, ntermMods = {}, ctermMods = {}, 
+                              varMods = {}, ntermVarMods = {}, ctermVarMods = {},
+                              varModSequence = []):
+    """Given peptide and charge, return b- and y-ions in seperate vectors
+
+    """
+    mass_op = lambda m: int(math.floor(m))
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    nterm_fragments = []
+    cterm_fragments = []
+    ntermOffset = 0
+    ctermOffset = 0
+
+    p = peptide.seq
+    # check n-/c-term amino acids for modifications
+    if p[0] in ntermMods:
+        ntermOffset = ntermMods[p[0]]
+    elif p[0] in ntermVarMods:
+        if varModSequence[0] == '2': # denotes an nterm variable modification
+            ntermOffset = ntermVarMods[p[0]][1]
+    if p[-1] in ctermMods:
+        ctermOffset = ctermMods[p[0]]
+    elif p[-1] in ctermVarMods:
+        if varModSequence[-1] == '3': # denotes a cterm variable modification
+            ctermOffset = ctermVarMods[p[-1]][1]
+
+    tauMin = (tauCard - 1 ) / 2
+    # calculate tau-radius around bin indices
+    rMax = lastBin + tauCard + tauMin
+    # iterate through possible charges
+    bSeq = []
+    ySeq = []
+    for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:])):
+        by = []
+        for c in range(1,charge):
+            cf = float(c)
+            # bOffset = cf*mass_h
+            boffset = ntermOffset + c
+            yoffset = ctermOffset + 18 + c
+            if aaB in mods:
+                boffset += mods[aaB]
+            elif aaB in varMods:
+                if varModSequence[ind]=='1':
+                    boffset += varMods[aaB][1]
+
+            if aaY in mods:
+                yoffset += mods[aaY]
+            elif aaY in varMods:
+                if varModSequence[ind+1]=='1':
+                    yoffset += varMods[aaY][1]
+            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
+            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
+            bs.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
+            ys.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+        bSeq.append(bs)
+        ySeq.append(ys)
+    return bSeq, ySeq
+
+def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
+                     mods = {}, ntermMods = {}, ctermMods = {}):
+    """Given peptide and charge, return b- and y-ions in seperate vectors
+
+    """
+    mass_op = lambda m: int(math.floor(m))
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    nterm_fragments = []
+    cterm_fragments = []
+    ntermOffset = 0
+    ctermOffset = 0
+
+    p = peptide.seq
+    # check n-/c-term amino acids for modifications
+    if p[0] in ntermMods:
+        ntermOffset = ntermMods[p[0]]
+    if p[-1] in ctermMods:
+        ctermOffset = ctermMods[p[0]]
+
+    tauMin = (tauCard - 1 ) / 2
+    # calculate tau-radius around bin indices
+    rMax = lastBin + tauCard + tauMin
+    # iterate through possible charges
+    bSeq = []
+    ySeq = []
+    for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
+        bs = []
+        ys = []
+        for c in range(1,charge):
+            cf = float(c)
+            # boffset = ntermOffset + c
+            # yoffset = ctermOffset + 18 + c
+            boffset = ntermOffset + cf*mass_h
+            yoffset = ctermOffset + mass_h2o + cf*mass_h
+            if aaB in mods:
+                boffset += mods[aaB]
+            if aaY in mods:
+                yoffset += mods[aaY]
+            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
+            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
+            bs.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
+            ys.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+        bSeq.append(bs)
+        ySeq.append(ys)
+    return bSeq, ySeq
+
 def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75, 
                    mods = {}, ntermMods = {}, ctermMods = {}):
     """Given peptide and charge, return b- and y-ions in seperate vectors
@@ -653,11 +758,158 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     return (foregroundScore,backgroundScore)
 
 def logCve(theta, s):
-    return math.log(cve(theta,s))
+    return np.log(cve(theta,s))
 
 def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                     mods = {}, ntermMods = {}, ctermMods = {},
                     varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+    """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
+    the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
+    """
+    lastBin = num_bins-1
+    tauCard = 75
+    if varMods or ntermVarMods or ctermVarMods:
+        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
+        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+    else:    
+        # byPairs = byIonPairsTauShift(peptide,3, lastBin, tauCard, 
+        #                              mods, ntermMods, ctermMods)
+        bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
+                                      mods, ntermMods, ctermMods)
+        sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
+                                mods, ntermMods, ctermMods)
+
+    bSeq = np.array(bSeq).astype(int)
+    ySeq = np.array(ySeq).astype(int)
+    sB = np.array(sB).astype(int)
+    sY = np.array(sY).astype(int)
+
+    foregroundScore = 0.0
+    backgroundScore = 0.0
+    # first calculate foreground score
+    cLogProb = math.log(2.0)
+
+    l = learnedLambdas2[0]
+    foregroundScore = math.exp(np.sum(logCve(l,bins[sB]) + logCve(l,bins[sY])))
+
+    l = learnedLambdas3[0]
+    h = np.exp(logCve(l,bins[bSeq]) + logCve(l,bins[ySeq]) - cLogProb)
+    foregroundScore += math.exp(np.sum(np.log(np.sum(h, axis=1))))
+
+    backgroundScore += foregroundScore
+    foregroundScore = math.log(foregroundScore)
+    # next, background score, eliminating iterating over \tau=0
+
+    for tau in range(-37,0):
+        l = learnedLambdas2[tau]
+        l2 = learnedLambdas2[-tau]
+        h = np.exp(np.sum(logCve(l,bins[sB+tau]) + logCve(l,bins[sY+tau])))
+        h2 = np.exp(np.sum(logCve(l2,bins[sB-tau]) + logCve(l2,bins[sY-tau])))
+        backgroundScore += h + h2
+
+        l = learnedLambdas3[tau]
+        l2 = learnedLambdas3[-tau]
+
+        h = np.exp(logCve(l,bins[bSeq+tau]) + logCve(l,bins[ySeq+tau]) - cLogProb)
+        h2 = np.exp(logCve(l2,bins[bSeq-tau]) + logCve(l2,bins[ySeq-tau]) - cLogProb)
+        currScore = math.exp(np.sum(np.log(np.sum(h, axis=1))))
+        currScore2 = math.exp(np.sum(np.log(np.sum(h2, axis=1))))
+
+        backgroundScore += currScore + currScore2
+    # final background score is log \sum_{\tau} (B + Y)^T S_{\tau}
+    backgroundScore = math.log(backgroundScore)
+
+    return (foregroundScore,backgroundScore)
+
+def genCveBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                        mods = {}, ntermMods = {}, ctermMods = {},
+                        varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+    """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
+    the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
+    """
+    lastBin = num_bins-1
+    tauCard = 75
+    # if varMods or ntermVarMods or ctermVarMods:
+    #     byPairs = byIonPairsTauShift_var_mods(peptide,3, lastBin, tauCard)
+    #     sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+    # else:    
+    #     # byPairs = byIonPairsTauShift(peptide,3, lastBin, tauCard, 
+    #     #                              mods, ntermMods, ctermMods)
+    #     bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard, 
+    #                                  mods, ntermMods, ctermMods)
+    #     sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
+    #                             mods, ntermMods, ctermMods)
+
+    byPairs = byIonPairsTauShift(peptide,3, lastBin, tauCard, 
+                                 mods, ntermMods, ctermMods)
+    bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard, 
+                                  mods, ntermMods, ctermMods)
+    sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
+                            mods, ntermMods, ctermMods)
+
+    bSeq = np.array(bSeq).astype(int)
+    ySeq = np.array(ySeq).astype(int)
+    sB = np.array(sB).astype(int)
+    sY = np.array(sY).astype(int)
+
+    foregroundScore = 0.0
+    backgroundScore = 0.0
+    # first calculate foreground score
+    cLogProb = math.log(2.0)
+
+    l = learnedLambdas2[0]
+    foregroundScore = np.exp(np.sum(logCve(l,bins[sB]) + logCve(l,bins[sY])))
+    currScore = 0.0
+    l = learnedLambdas3[0]
+    h = np.exp(logCve(l,bins[bSeq]) + logCve(l,bins[ySeq]) - cLogProb)
+    currScore = np.sum(np.log(np.sum(h, axis=0)))
+    # for by in byPairs:
+    #     h = 0.0
+    #     for b, y in by:
+    #         h += math.exp(logCve(l,bins[b]) + logCve(l,bins[y]) - cLogProb)
+    #     currScore += math.log(h)
+    foregroundScore += math.exp(currScore)
+
+    backgroundScore += foregroundScore
+    foregroundScore = math.log(foregroundScore)
+    # next, background score, eliminating iterating over \tau=0
+
+    for tau in range(-37,0):
+        l = learnedLambdas2[tau]
+        l2 = learnedLambdas2[-tau]
+        # h = np.exp(np.sum(logCve(l,bins[sB+tau]) + logCve(l,bins[sY+tau])))
+        # h2 = np.exp(np.sum(logCve(l2,bins[sB-tau]) + logCve(l2,bins[sY-tau])))
+        h = 0.0
+        h2 = 0.0
+        for b,y in zip(sB, sY):
+            h += logCve(l,bins[b+tau]) + logCve(l,bins[y+tau])
+            h2 += logCve(l2,bins[b-tau]) + logCve(l2,bins[y-tau])
+        backgroundScore += math.exp(h) + math.exp(h2)
+        currScore = 0.0
+        currScore2 = 0.0
+        l = learnedLambdas3[tau]
+        l2 = learnedLambdas3[-tau]
+        for by in byPairs:
+            h = 0.0
+            h2 = 0.0
+            for b, y in by:
+                # h += math.exp(l * (bins[b+tau] + bins[y+tau])) / 2.0
+                # h2 += math.exp(l2 * (bins[b-tau] + bins[y-tau])) / 2.0
+                a = logCve(l,bins[b+tau]) + logCve(l,bins[y+tau]) - cLogProb
+                b = logCve(l,bins[b-tau]) + logCve(l,bins[y-tau]) - cLogProb
+                h += math.exp(a)
+                h2 += math.exp(b)
+            currScore += math.log(h)
+            currScore2 += math.log(h2)
+        backgroundScore += math.exp(currScore) + math.exp(currScore2)
+    # final background score is log \sum_{\tau} (B + Y)^T S_{\tau}
+    backgroundScore = math.log(backgroundScore)
+
+    return (foregroundScore,backgroundScore)
+
+def genCveBinBuffer_og(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                       mods = {}, ntermMods = {}, ctermMods = {},
+                       varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
@@ -671,7 +923,6 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
                                      mods, ntermMods, ctermMods)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
                                 mods, ntermMods, ctermMods)
-
 
     foregroundScore = 0.0
     backgroundScore = 0.0
@@ -871,7 +1122,7 @@ def score_didea_spectra(args, data, ranges,
     rMin = -tauCard
     rMax = lastBin + tauCard
 
-    bins2 = numpy.empty( (nb + 2 * tauCard)  )
+    bins2 = np.empty( (nb + 2 * tauCard)  )
     validcharges = args.charges
 
     for s in spectra:
@@ -969,7 +1220,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
     rMin = -tauCard
     rMax = lastBin + tauCard
 
-    bins2 = numpy.empty( (nb + 2 * tauCard)  )
+    bins2 = np.empty( (nb + 2 * tauCard)  )
     validcharges = args.charges
 
     for s in spectra:
