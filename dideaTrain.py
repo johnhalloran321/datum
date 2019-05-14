@@ -452,10 +452,10 @@ def cve_general_ll(lambdas, options, numData, data):
     # for shift \tau of PSM sid
     totalLogProbEv = 0.0
     grad = {}
-    numer = {}
+    # numer = {}
     for tau in range(-37,38):
         grad[tau] = 0.0
-        numer[tau] = 0.0
+        # numer[tau] = 0.0
 
     for i in range(numData):
         # print "sid=%d" % sids[i]
@@ -470,38 +470,19 @@ def cve_general_ll(lambdas, options, numData, data):
         # print lambdas.shape, data[i].shape, probs.shape, likelihoods.shape, g.shape
         probEv = np.sum(likelihoods)
         denom = probEv
-        for ind,tau in enumerate(range(-37,38)):
-            # peaks = data[i,tau]
-            # lmb = lambdas[tau]
-
-            # logLikelihood = 0.0
-            # g = 0.0
-            # for peak in peaks:
-            #     prob = cve(lmb, peak)
-            #     deriv = cve_grad(lmb, peak)
-            #     logLikelihood += math.log(prob)
-            #     g += deriv / prob
-            # likelihood = math.exp(logLikelihood)
-
-            # probs = cve(lmb, peaks)
-            # derivs = cve_grad(lmb, peaks)
-            # likelihood = np.exp(sum(np.log(probs)))
-            # g = sum(derivs / probs)
-
-            numer[tau] = likelihoods[ind] * g[ind]
-            # probEv += likelihood # probability of evidence
-            # denom += likelihood
-            # print currx
+        numer = likelihoods * g
+        # for ind,tau in enumerate(range(-37,38)):
+        #     numer[tau] = likelihoods[ind] * g[ind]
         totalLogProbEv += math.log(probEv)
         for ind,tau in enumerate(range(-37,38)):
-            if numer[tau] == 0.0:
+            if numer[ind] == 0.0:
                 if options.l2Reg:
                     grad[tau] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
                 continue
-            if numer[tau] < 0.0:
-                grad[tau] -= math.exp(math.log(-numer[tau])-math.log(denom)) / float(numData)
+            if numer[ind] < 0.0:
+                grad[tau] -= math.exp(math.log(-numer[ind])-math.log(probEv)) / float(numData)
             else:
-                grad[tau] += math.exp(math.log(numer[tau])-math.log(denom)) / float(numData)
+                grad[tau] += math.exp(math.log(numer[ind])-math.log(probEv)) / float(numData)
             if options.l2Reg:
                 grad[tau] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
         # exit(-1)
