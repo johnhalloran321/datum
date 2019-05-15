@@ -118,9 +118,9 @@ class dideaPSM(object):
                       varMods = {}, varNtermMods = {}, varCtermMods = {}):
         if not cve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
-                                                                                        self.charge,bins,num_bins, lambdas2, lambdas3, 
-                                                                                        mods, ntermMods, ctermMods, 
-                                                                                        varMods, varNtermMods, varCtermMods)
+                                                                                           self.charge,bins,num_bins, lambdas2, lambdas3, 
+                                                                                           mods, ntermMods, ctermMods, 
+                                                                                           varMods, varNtermMods, varCtermMods)
         else:
             (foregroundScore,backgroundScore) = genCveBinBuffer(Peptide(self.peptide),
                                                                 self.charge,bins,num_bins, lambdas2, lambdas3, 
@@ -698,6 +698,66 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     lastBin = num_bins-1
     tauCard = 75
     if varMods or ntermVarMods or ctermVarMods:
+        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
+        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+    else:    
+        bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
+                                      mods, ntermMods, ctermMods)
+        sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
+                                mods, ntermMods, ctermMods)
+
+    sB += sY # collapse b- and y- charge2 vectors together
+
+    bSeq = np.array(bSeq).astype(int)
+    ySeq = np.array(ySeq).astype(int)
+    sB = np.array(sB).astype(int)
+    # sY = np.array(sY).astype(int)
+
+    backgroundScore = 0.0
+    cLogProb = math.log(2.0)
+    # first calculate foreground score
+
+    l = learnedLambdas2[0]
+    foregroundScore = math.exp(l * np.sum(bins[sB]))
+    a = foregroundScore
+    currScore = 0.0
+    l = learnedLambdas3[0]
+    h = np.exp(l *(bins[bSeq] + bins[ySeq]) - cLogProb)
+    foregroundScore += math.exp(np.sum(np.log(np.sum(h, axis=1))))
+
+    backgroundScore += foregroundScore
+    foregroundScore = math.log(foregroundScore)
+
+    l = np.array([learnedLambdas2[tau] for tau in range(-37,38)])
+    # l2 = np.array([learnedLambdas3[tau] for tau in range(-37,38)])
+
+    backgroundScore += np.sum(np.exp(l*np.sum(bins[sB + [[tau] for tau in range(-37,38)]], axis=1))) - a
+    # h = np.exp(bins[bSeq + [[tau] for tau in range(-37,38)]] + bins[ySeq + [[tau] for tau in range(-37,38)]]) - cLogProb
+
+    # next, background score, eliminating iterating over \tau=0
+    for tau in range(-37,0):
+        l = learnedLambdas3[tau]
+        l2 = learnedLambdas3[-tau]
+
+        h = np.exp(l * (bins[bSeq+tau] + bins[ySeq+tau]) - cLogProb)
+        h2 = np.exp(l2 * (bins[bSeq-tau] + bins[ySeq-tau]) - cLogProb)
+        currScore = math.exp(np.sum(np.log(np.sum(h, axis=1))))
+        currScore2 = math.exp(np.sum(np.log(np.sum(h2, axis=1))))
+        backgroundScore += currScore + currScore2
+    # final background score is log \sum_{\tau} (B + Y)^T S_{\tau}
+    backgroundScore = math.log(backgroundScore)
+
+    return (foregroundScore,backgroundScore)
+
+def dideaMultiChargeBinBufferLearnedLambdas_og(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                                               mods = {}, ntermMods = {}, ctermMods = {},
+                                               varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+    """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
+    the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
+    """
+    lastBin = num_bins-1
+    tauCard = 75
+    if varMods or ntermVarMods or ctermVarMods:
         byPairs = byIonPairsTauShift_var_mods(peptide,3, lastBin, tauCard)
         sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
     else:    
@@ -705,8 +765,6 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
                                      mods, ntermMods, ctermMods)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
                                 mods, ntermMods, ctermMods)
-
-
     foregroundScore = 0.0
     backgroundScore = 0.0
     # first calculate foreground score
@@ -772,8 +830,6 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
         bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
         sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
     else:    
-        # byPairs = byIonPairsTauShift(peptide,3, lastBin, tauCard, 
-        #                              mods, ntermMods, ctermMods)
         bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
                                       mods, ntermMods, ctermMods)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
