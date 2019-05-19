@@ -55,13 +55,14 @@ def didea_load_database(args, varMods, ntermVarMods, ctermVarMods):
 
 from subprocess import call, check_output
 
+# stdo = open(os.devnull, "w")
+# stde = sys.stdout
+
 # set stdout and stderr for subprocess
 # stdo = open(os.devnull, "w")
 
-# stdo = sys.stdout
-stdo = open(os.devnull, "w")
-stde = sys.stdout
-# stde = stdo
+stdo = sys.stdout
+stde = stdo
 
 # stde = open('gmtk_err', "w")
 
@@ -115,17 +116,19 @@ class dideaPSM(object):
 
     def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, cve,
                       mods = {}, ntermMods = {}, ctermMods = {},
-                      varMods = {}, varNtermMods = {}, varCtermMods = {}):
+                      varMods = {}, varNtermMods = {}, varCtermMods = {}, varModSequence = []):
         if not cve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
-                                                                                           self.charge,bins,num_bins, lambdas2, lambdas3, 
-                                                                                           mods, ntermMods, ctermMods, 
-                                                                                           varMods, varNtermMods, varCtermMods)
+                                                                                        self.charge,bins,num_bins, lambdas2, lambdas3, 
+                                                                                        mods, ntermMods, ctermMods, 
+                                                                                        varMods, varNtermMods, varCtermMods,
+                                                                                        varModSequence)
         else:
             (foregroundScore,backgroundScore) = genCveBinBuffer(Peptide(self.peptide),
                                                                 self.charge,bins,num_bins, lambdas2, lambdas3, 
                                                                 mods, ntermMods, ctermMods, 
-                                                                varMods, varNtermMods, varCtermMods)
+                                                                varMods, varNtermMods, varCtermMods,
+                                                                varModSequence)
         self.score = foregroundScore - backgroundScore
         self.foreground_score = foregroundScore
         self.background_score = backgroundScore
@@ -139,7 +142,7 @@ class dideaPSM(object):
             which set each fragment ion belongs to
         """
         if varMods or varNtermMods or varCtermMods:
-            assert varModSequence, "Variable modifications enyme options specified, but string indicating which amino acids were var mods not supplied.  Exitting"
+            assert varModSequence, "Variable modifications enzyme options specified, but string indicating which amino acids were var mods not supplied.  Exitting"
             if highResMs2:
                 bions, yions = return_b_y_ions_var_mods(Peptide(self.peptide), c, 
                                                         mods, ntermMods, ctermMods,
@@ -470,12 +473,15 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     bSeq = []
     ySeq = []
     for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:])):
-        by = []
+        bs = []
+        ys = []
         for c in range(1,charge):
             cf = float(c)
             # bOffset = cf*mass_h
-            boffset = ntermOffset + c
-            yoffset = ctermOffset + 18 + c
+            # boffset = ntermOffset + c
+            # yoffset = ctermOffset + 18 + c
+            boffset = ntermOffset + cf*mass_h
+            yoffset = ctermOffset + mass_h2o + cf*mass_h
             if aaB in mods:
                 boffset += mods[aaB]
             elif aaB in varMods:
@@ -619,8 +625,10 @@ def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
         for c in range(1,charge):
             cf = float(c)
             # bOffset = cf*mass_h
-            boffset = ntermOffset + c
-            yoffset = ctermOffset + 18 + c
+            # boffset = ntermOffset + c
+            # yoffset = ctermOffset + 18 + c
+            boffset = ntermOffset + cf*mass_h
+            yoffset = ctermOffset + mass_h2o + cf*mass_h
             if aaB in mods:
                 boffset += mods[aaB]
             elif aaB in varMods:
@@ -639,7 +647,9 @@ def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     return byPairs
 
 def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75, 
-                            mods = {}, ntermMods = {}, ctermMods = {}):
+                            mods = {}, ntermMods = {}, ctermMods = {},
+                            varMods = {}, ntermVarMods = {}, ctermVarMods = {},
+                            varModSequence = []):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
@@ -691,15 +701,21 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
 
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                                             mods = {}, ntermMods = {}, ctermMods = {},
-                                            varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+                                            varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = []):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
     lastBin = num_bins-1
     tauCard = 75
     if varMods or ntermVarMods or ctermVarMods:
-        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
-        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard, 
+                                               mods, ntermMods, ctermMods, 
+                                               varMods, ntermVarMods, ctermVarMods,
+                                               varModSequence)
+        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard,
+                                         mods, ntermMods, ctermMods, 
+                                         varMods, ntermVarMods, ctermVarMods,
+                                         varModSequence)
     else:    
         bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
                                       mods, ntermMods, ctermMods)
@@ -751,15 +767,15 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
 
 def dideaMultiChargeBinBufferLearnedLambdas_og(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                                                mods = {}, ntermMods = {}, ctermMods = {},
-                                               varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+                                               varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = []):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
     lastBin = num_bins-1
     tauCard = 75
     if varMods or ntermVarMods or ctermVarMods:
-        byPairs = byIonPairsTauShift_var_mods(peptide,3, lastBin, tauCard)
-        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+        byPairs = byIonPairsTauShift_var_mods(peptide,3, lastBin, tauCard, varModSequence)
+        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard, varModSequence)
     else:    
         byPairs = byIonPairsTauShift(peptide,3, lastBin, tauCard, 
                                      mods, ntermMods, ctermMods)
@@ -816,25 +832,36 @@ def dideaMultiChargeBinBufferLearnedLambdas_og(peptide, charge, bins, num_bins, 
     return (foregroundScore,backgroundScore)
 
 def logCve(theta, s):
+    # log of the CVE defined in dideaTrain
     return np.log(cve(theta,s))
 
 def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                     mods = {}, ntermMods = {}, ctermMods = {},
-                    varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
-    """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
+                    varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = []):
+    """ For a generally defined (virtual evidence) emission function,
+    calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
     lastBin = num_bins-1
     tauCard = 75
     if varMods or ntermVarMods or ctermVarMods:
-        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
-        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
+        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard, 
+                                               mods, ntermMods, ctermMods, 
+                                               varMods, ntermVarMods, ctermVarMods,
+                                               varModSequence)
+        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard,
+                                         mods, ntermMods, ctermMods, 
+                                         varMods, ntermVarMods, ctermVarMods,
+                                         varModSequence)
+        # bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
+        # sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
     else:    
         bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
                                       mods, ntermMods, ctermMods)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
                                 mods, ntermMods, ctermMods)
 
+    # enable fancy indexing for the various lists of b-y ions
     bSeq = np.array(bSeq).astype(int)
     ySeq = np.array(ySeq).astype(int)
     sB = np.array(sB).astype(int)
@@ -1131,15 +1158,17 @@ def write_dideaSearch_ident(output, scored_psms,
 
     for td in scored_psms:
         # write target
-        write_dideaPSM_to_ident_var_mods(identFid, td[1],
-                                         mods, nterm_mods, cterm_mods,
-                                         var_mods, nterm_var_mods, cterm_var_mods,
-                                         isVarMods)
+        if td[1]:
+            write_dideaPSM_to_ident_var_mods(identFid, td[1],
+                                             mods, nterm_mods, cterm_mods,
+                                             var_mods, nterm_var_mods, cterm_var_mods,
+                                             isVarMods)
         # now decoy
-        write_dideaPSM_to_ident_var_mods(identFid, td[2],
-                                         mods, nterm_mods, cterm_mods,
-                                         var_mods, nterm_var_mods, cterm_var_mods,
-                                         isVarMods)
+        if td[2]:
+            write_dideaPSM_to_ident_var_mods(identFid, td[2],
+                                             mods, nterm_mods, cterm_mods,
+                                             var_mods, nterm_var_mods, cterm_var_mods,
+                                             isVarMods)
     identFid.close()
     return 1
 
@@ -1147,9 +1176,7 @@ def score_didea_spectra(args, data, ranges,
                         preprocess, learnedLambdas2, learnedLambdas3,
                         mods, ntermMods, ctermMods,
                         varMods, ntermVarMods, ctermVarMods):
-    """Generate test data .pfile. and create job scripts for cluster use.
-       Decrease number of calls to GMTK by only calling once per spectrum
-       and running for all charge states in one go
+    """
     """
 
     cve = args.cve
@@ -1221,7 +1248,8 @@ def score_didea_spectra(args, data, ranges,
                                     tp[3], tp[4], varModSequence, tp[2])
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods)
+                                       varMods, ntermVarMods, ctermVarMods, 
+                                       varModSequence)
                 charged_target_psms.append(curr_psm)
 
             for dp in decoy[(s.spectrum_id,charge)]:
@@ -1237,7 +1265,8 @@ def score_didea_spectra(args, data, ranges,
                                     dp[3], dp[4], varModSequence, dp[2])
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods)
+                                       varMods, ntermVarMods, ctermVarMods, 
+                                       varModSequence)
                 charged_decoy_psms.append(curr_psm)
 
         top_target = max(charged_target_psms,key = scoref)
@@ -1319,7 +1348,8 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                                     tp[3], tp[4], varModSequence, tp[2])
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods)
+                                       varMods, ntermVarMods, ctermVarMods, 
+                                       varModSequence)
                 charged_target_psms.append(curr_psm)
 
             for dp in (decoys.filter(m - mass_h, args.precursor_window, args.ppm)):
@@ -1335,11 +1365,18 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                                     dp[3], dp[4], varModSequence, dp[2])
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods)
+                                       varMods, ntermVarMods, ctermVarMods,
+                                       varModSequence)
                 charged_decoy_psms.append(curr_psm)
 
-        top_target = max(charged_target_psms,key = scoref)
-        top_decoy = max(charged_decoy_psms,key = scoref)
+        if charged_target_psms:
+            top_target = max(charged_target_psms,key = scoref)
+        else:
+            top_target = []
+        if charged_decoy_psms:
+            top_decoy = max(charged_decoy_psms,key = scoref)
+        else:
+            top_decoy = []
 
         top_psms.append((sid, top_target, top_decoy))
     return top_psms
