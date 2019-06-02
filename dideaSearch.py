@@ -46,8 +46,6 @@ from pyFiles.peptide_db import PeptideDB, SimplePeptideDB
 def didea_load_database(args, varMods, ntermVarMods, ctermVarMods):
     """ 
     """
-    # t = SimplePeptideDB(args.target_db)
-    # d = SimplePeptideDB(args.decoy_db)
     t = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'targets.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
     d = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'decoys.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
 
@@ -547,6 +545,51 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
         ySeq.append(ys)
     return bSeq, ySeq
 
+
+def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
+                          mods = {}, ntermMods = {}, ctermMods = {}):
+    """Given peptide and charge, return b- and y-ions in seperate vectors
+
+    """
+    mass_op = lambda m: int(math.floor(m))
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    nterm_fragments = []
+    cterm_fragments = []
+    ntermOffset = 0
+    ctermOffset = 0
+
+    p = peptide.seq
+    # check n-/c-term amino acids for modifications
+    if p[0] in ntermMods:
+        ntermOffset = ntermMods[p[0]]
+    if p[-1] in ctermMods:
+        ctermOffset = ctermMods[p[0]]
+
+    tauMin = (tauCard - 1 ) / 2
+    # calculate tau-radius around bin indices
+    rMax = lastBin + tauCard + tauMin
+    # iterate through possible charges
+    bSeq = []
+    ySeq = []
+    for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
+        bs = []
+        ys = []
+        for c in range(1,charge):
+            cf = float(c)
+            # boffset = ntermOffset + c
+            # yoffset = ctermOffset + 18 + c
+            boffset = ntermOffset + cf*mass_h
+            yoffset = ctermOffset + mass_h2o + cf*mass_h
+            if aaB in mods:
+                boffset += mods[aaB]
+            if aaY in mods:
+                yoffset += mods[aaY]
+            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
+            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
+            bSeq.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
+            ySeq.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+    return bSeq, ySeq
+
 def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75, 
                    mods = {}, ntermMods = {}, ctermMods = {}):
     """Given peptide and charge, return b- and y-ions in seperate vectors
@@ -719,6 +762,8 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     else:    
         bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
                                       mods, ntermMods, ctermMods)
+        # bSeq, ySeq = byIonSepTauShift_flat(peptide,3, lastBin, tauCard,
+        #                                    mods, ntermMods, ctermMods)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
                                 mods, ntermMods, ctermMods)
 
@@ -745,11 +790,11 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     foregroundScore = math.log(foregroundScore)
 
     l = np.array([learnedLambdas2[tau] for tau in range(-37,38)])
-    # l2 = np.array([learnedLambdas3[tau] for tau in range(-37,38)])
+    l2 = np.array([learnedLambdas3[tau] for tau in range(-37,38)])
 
     backgroundScore += np.sum(np.exp(l*np.sum(bins[sB + [[tau] for tau in range(-37,38)]], axis=1))) - a
-    # h = np.exp(bins[bSeq + [[tau] for tau in range(-37,38)]] + bins[ySeq + [[tau] for tau in range(-37,38)]]) - cLogProb
-
+    # h = np.exp(l2*(bins[bSeq + [[tau] for tau in range(-37,38)]] + bins[ySeq + [[tau] for tau in range(-37,38)]])) - cLogProb
+    # backgroundScore += math.exp(np.sum(np.log(np.sum(h,axi=1)))
     # next, background score, eliminating iterating over \tau=0
     for tau in range(-37,0):
         l = learnedLambdas3[tau]
@@ -881,8 +926,8 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
 
     backgroundScore += foregroundScore
     foregroundScore = math.log(foregroundScore)
-    # next, background score, eliminating iterating over \tau=0
 
+    # next, background score, eliminating iterating over \tau=0
     for tau in range(-37,0):
         l = learnedLambdas2[tau]
         l2 = learnedLambdas2[-tau]
@@ -1211,8 +1256,11 @@ def score_didea_spectra(args, data, ranges,
     for s in spectra:
         preprocess(s)
         # Generate the spectrum observations.
-        truebins = histogram_spectra(s, ranges, max, use_mz = True)
-        bins = bins_to_vecpt_ratios(truebins, args.vekind, args.lmb)
+        bins = histogram_spectra(s, ranges, max)
+        bins[0] = 0.0
+        bins[-1] = 0.0
+        # truebins = histogram_spectra(s, ranges, max)
+        # bins = bins_to_vecpt_ratios(truebins, args.vekind, args.lmb)
 
         for i in range(rMin, rMax):
             a = bins[min(max(i,0), lastBin)]
@@ -1279,9 +1327,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                                ranges,preprocess, learnedLambdas2, learnedLambdas3,
                                mods, ntermMods, ctermMods,
                                varMods, ntermVarMods, ctermVarMods):
-    """Generate test data .pfile. and create job scripts for cluster use.
-       Decrease number of calls to GMTK by only calling once per spectrum
-       and running for all charge states in one go
+    """Score the spectra
     """
     cve = args.cve
     scoref = lambda r: r.score
@@ -1311,8 +1357,11 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
     for s in spectra:
         preprocess(s)
         # Generate the spectrum observations.
-        truebins = histogram_spectra(s, ranges, max, use_mz = True)
-        bins = bins_to_vecpt_ratios(truebins, args.vekind, args.lmb)
+        bins = histogram_spectra(s, ranges, max)
+        bins[0] = 0.0
+        bins[-1] = 0.0
+        # truebins = histogram_spectra(s, ranges, max)
+        # bins = bins_to_vecpt_ratios(truebins, args.vekind, args.lmb)
 
         for i in range(rMin, rMax):
             a = bins[min(max(i,0), lastBin)]
@@ -1403,7 +1452,7 @@ def runDidea_inCore(args):
     #    peptide[5] = binary string deoting variable modifications
     targets, decoys = didea_load_database(args, var_mods, nterm_var_mods, cterm_var_mods)
     preprocess = pipeline(args.normalize)
-    ranges = simple_uniform_binwidth(0, args.max_mass, args.num_bins,
+    ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = 1.0)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1428,7 +1477,7 @@ def runDidea(args):
     cterm_mods, cterm_var_mods = parse_var_mods(args.cterm_peptide_mods_spec, False)
 
     preprocess = pipeline(args.normalize)
-    ranges = simple_uniform_binwidth(0, args.max_mass, args.num_bins,
+    ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = 1.0)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1498,7 +1547,7 @@ def runDidea_multithread(options):
     partitions[-1].sort(key = lambda r: r[2])
 
     preprocess = pipeline(args.normalize)
-    ranges = simple_uniform_binwidth(0, args.max_mass, args.num_bins,
+    ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = 1.0)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1561,7 +1610,7 @@ def runDidea_multithread_inCore(options):
     #    peptide[5] = binary string deoting variable modifications
     targets, decoys = didea_load_database(args, var_mods, nterm_var_mods, cterm_var_mods)
     preprocess = pipeline(args.normalize)
-    ranges = simple_uniform_binwidth(0, args.max_mass, args.num_bins,
+    ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = 1.0)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1597,14 +1646,14 @@ if __name__ == '__main__':
         runDidea_inCore(args)
     else:
         runDidea_multithread_inCore(args)
+        
+    if stdo:
+        stdo.close()
+    if stde:
+        stde.close()
 
     # # out-of-core searches, use when digested peptide database cannot be loaded into memory
     # if args.num_threads <= 1:
     #     runDidea(args)
     # else:
     #     runDidea_multithread(args)
-        
-    if stdo:
-        stdo.close()
-    if stde:
-        stde.close()
