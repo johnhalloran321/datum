@@ -276,8 +276,7 @@ def genDideaTrainingData(options):
     tbl = 'monoisotopic'
     preprocess = pipeline(options.normalize)
     # Generate the histogram bin ranges
-    ranges = simple_uniform_binwidth(0, options.max_mass, options.num_bins,
-                                     bin_width = 1.0)
+    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = 1.0)
 
     vc = int(options.charge)
     validcharges = set([vc])
@@ -304,8 +303,11 @@ def genDideaTrainingData(options):
         sid = s.spectrum_id
         preprocess(s)
         # Generate the spectrum observations.
-        truebins = histogram_spectra(s, ranges, max, use_mz = True)
-        bins = bins_to_vecpt_ratios(truebins, 'intensity', 0.0)
+        # truebins = histogram_spectra(s, ranges, max)
+        # bins = bins_to_vecpt_ratios(truebins, 'intensity', 0.0)
+        bins = histogram_spectra(s, ranges, max)
+        bins[0] = 0.0
+        bins[-1] = 0.0
         # find psm
         ind = find_sid(sids, s.spectrum_id)
 
@@ -345,8 +347,7 @@ def genDideaTrainingData_par(options, numThreads):
     tbl = 'monoisotopic'
     preprocess = pipeline(options.normalize)
     # Generate the histogram bin ranges
-    ranges = simple_uniform_binwidth(0, options.max_mass, options.num_bins,
-                                     bin_width = 1.0)
+    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = 1.0)
 
     vc = int(options.charge)
     validcharges = set([vc])
@@ -375,8 +376,9 @@ def genDideaTrainingData_par(options, numThreads):
         sid = s.spectrum_id
         preprocess(s)
         # Generate the spectrum observations.
-        truebins = histogram_spectra(s, ranges, max, use_mz = True)
-        bins = bins_to_vecpt_ratios(truebins, 'intensity', 0.0)
+        bins = histogram_spectra(s, ranges, max)
+        bins[0] = 0.0
+        bins[-1] = 0.0
         # find psm
         ind = find_sid(sids, s.spectrum_id)
 
@@ -419,7 +421,6 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
             sumExp += math.exp(lmb*currx)
             numer[tau] = currx*math.exp(lmb*currx)
             denom += math.exp(lmb*currx)
-            # print currx
         logSumExp += math.log(sumExp)
         for tau in range(-37,38):
             if numer[tau] == 0.0:
@@ -629,13 +630,6 @@ def batchGradientAscentShiftPrior(options):
     """Run batch gradient ascent on the training data"""
     numThreads = min(mp.cpu_count() - 1, options.num_threads)
     (numData, data, sids) = genDideaTrainingData(options)
-    # numData = []
-    # data = []
-    # sids = []
-    # if numThreads == 1:
-    #     (numData, data, sids) = genDideaTrainingData(options)
-    # else:
-    #     (numData, data, sids) = genDideaTrainingData_par(options, numThreads)
     optEval = 100.0
     optEvalPrev = float("-inf")
     thresh = options.thresh
@@ -676,7 +670,6 @@ def batchGradientAscentShiftPrior(options):
         # is exploited to significantly optimize learning
         if options.num_threads > 1:
             grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data, parallel_partitions, numThreads)
-            # grad, logSumExp = batchFuncEvalLambdas_mpB(lambdas, options, numData, data, numThreads, sids)
         else:
             grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
     else:
@@ -752,11 +745,65 @@ def batchGradientAscentShiftPrior(options):
             fid.write("%e\n" % lambdas[ind])
     fid.close()
 
+def batchGradientAscentShiftPrior0(options):
+    """Run batch gradient ascent on the training data"""
+    numThreads = min(mp.cpu_count() - 1, options.num_threads)
+    (numData, data, sids) = genDideaTrainingData(options)
+    optEval = 100.0
+    optEvalPrev = float("-inf")
+    thresh = options.thresh
+    epoch = 0
+    lrate = options.lrate # learning rate
+    iters = 0
+
+    if not options.cve:
+        print "Optimized training for CVE0"
+
+    # initialize parameters
+    lambdas = {}
+    for tau in range(-37,38):
+        lambdas[tau] = 0.0
+
+    grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+
+    optEval = -logSumExp
+    l2 = 0.0
+    for tau in range(-37,38):
+        lambdas[tau] -= lrate * grad[tau]
+        l2 += grad[tau] * grad[tau]
+    l2 = math.sqrt(l2)
+    iters += 1
+    print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
+
+    while(l2 > thresh):
+        grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
+
+        optEval = -logSumExp
+        l2 = 0.0
+        for ind,tau in enumerate(range(-37,38)):
+            lambdas[tau] -= lrate * grad[tau]
+            l2 += grad[tau] * grad[tau]
+        l2 = math.sqrt(l2)
+        print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
+        iters += 1
+
+        optEval = -logSumExp
+        # write output matrix
+    fid = open(options.output, "w")
+    lambdas[0] = options.lmb0Prior
+
+    for ind, tau in enumerate(range(-37,38)):
+        if not options.cve:
+            fid.write("%e\n" % lambdas[tau])
+        else:
+            fid.write("%e\n" % lambdas[ind])
+    fid.close()
+
 if __name__ == '__main__':
     # read in options and process input arguments
     args = parseInputOptions()
     process_args(args)
-    batchGradientAscentShiftPrior(args)
+    batchGradientAscentShiftPrior0(args)
         
     if stdo:
         stdo.close()
