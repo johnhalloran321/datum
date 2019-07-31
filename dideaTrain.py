@@ -644,8 +644,6 @@ def batchGradientAscentShiftPrior(options):
         # calculate indices to be evaluated in partition
         dataPoints = range(numData)
         random.shuffle(dataPoints)
-        # calculate num spectra to score per thread
-        # numThreads = min(mp.cpu_count() - 1, options.num_threads)
         inc = int(numData / numThreads)
         l = 0
         r = inc
@@ -659,8 +657,7 @@ def batchGradientAscentShiftPrior(options):
     lambdas = {}
     if not options.cve:
         for tau in range(-37,38):
-            # lambdas[tau] = 0.0
-            lambdas[tau] = 1.0
+            lambdas[tau] = 0.0
     else:
         lambdas = np.array([1.0 for _ in range(-37,38)])
 
@@ -745,65 +742,11 @@ def batchGradientAscentShiftPrior(options):
             fid.write("%e\n" % lambdas[ind])
     fid.close()
 
-def batchGradientAscentShiftPrior0(options):
-    """Run batch gradient ascent on the training data"""
-    numThreads = min(mp.cpu_count() - 1, options.num_threads)
-    (numData, data, sids) = genDideaTrainingData(options)
-    optEval = 100.0
-    optEvalPrev = float("-inf")
-    thresh = options.thresh
-    epoch = 0
-    lrate = options.lrate # learning rate
-    iters = 0
-
-    if not options.cve:
-        print "Optimized training for CVE0"
-
-    # initialize parameters
-    lambdas = {}
-    for tau in range(-37,38):
-        lambdas[tau] = 0.0
-
-    grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
-
-    optEval = -logSumExp
-    l2 = 0.0
-    for tau in range(-37,38):
-        lambdas[tau] -= lrate * grad[tau]
-        l2 += grad[tau] * grad[tau]
-    l2 = math.sqrt(l2)
-    iters += 1
-    print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
-
-    while(l2 > thresh):
-        grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
-
-        optEval = -logSumExp
-        l2 = 0.0
-        for ind,tau in enumerate(range(-37,38)):
-            lambdas[tau] -= lrate * grad[tau]
-            l2 += grad[tau] * grad[tau]
-        l2 = math.sqrt(l2)
-        print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
-        iters += 1
-
-        optEval = -logSumExp
-        # write output matrix
-    fid = open(options.output, "w")
-    lambdas[0] = options.lmb0Prior
-
-    for ind, tau in enumerate(range(-37,38)):
-        if not options.cve:
-            fid.write("%e\n" % lambdas[tau])
-        else:
-            fid.write("%e\n" % lambdas[ind])
-    fid.close()
-
 if __name__ == '__main__':
     # read in options and process input arguments
     args = parseInputOptions()
     process_args(args)
-    batchGradientAscentShiftPrior0(args)
+    batchGradientAscentShiftPrior(args)
         
     if stdo:
         stdo.close()
