@@ -17,3 +17,5 @@ mass_h2o = 18.010564684
 mass_h2o_avg = 18.0153
 mass_co = 27.9949
 mass_co_avg = 28.0101
+
+max_mz = 2000

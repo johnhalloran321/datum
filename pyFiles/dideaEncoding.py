@@ -5,7 +5,7 @@
 # See COPYING or http://opensource.org/licenses/OSL-3.0
 # Command line parsing utilities.
 
-def simple_uniform_binwidth(min_mass, num_bins, offset = 0.0, bin_width = 1.0011413):
+def simple_uniform_binwidth(min_mass, num_bins, bin_width = 1.0005079, offset = 0.0):
     tick_points = [ ]
     last = min_mass + offset
     while len(tick_points) < num_bins:

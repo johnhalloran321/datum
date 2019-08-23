@@ -25,13 +25,12 @@ import re
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide #, amino_acids_to_indices
 from pyFiles.normalize import pipeline
-from pyFiles.constants import allPeps, mass_h, mass_h2o
+from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz
 from dideaTrain import cve
 from digest import (check_arg_trueFalse,
                         parse_var_mods, load_digested_peptides_var_mods)
 from pyFiles.dideaEncoding import histogram_spectra, simple_uniform_binwidth, bins_to_vecpt_ratios
 
-from pyFiles.constants import allPeps
 from pyFiles.shard_spectra import (load_spectra,
                                    load_spectra_ret_dict,
                                    didea_candidate_generator,
@@ -114,57 +113,23 @@ class dideaPSM(object):
 
     def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, cve,
                       mods = {}, ntermMods = {}, ctermMods = {},
-                      varMods = {}, varNtermMods = {}, varCtermMods = {}, varModSequence = []):
+                      varMods = {}, varNtermMods = {}, varCtermMods = {}, varModSequence = [], 
+                      bin_width = 1.):
         if not cve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
                                                                                         self.charge,bins,num_bins, lambdas2, lambdas3, 
                                                                                         mods, ntermMods, ctermMods, 
                                                                                         varMods, varNtermMods, varCtermMods,
-                                                                                        varModSequence)
+                                                                                        varModSequence, bin_width)
         else:
             (foregroundScore,backgroundScore) = genCveBinBuffer(Peptide(self.peptide),
                                                                 self.charge,bins,num_bins, lambdas2, lambdas3, 
                                                                 mods, ntermMods, ctermMods, 
                                                                 varMods, varNtermMods, varCtermMods,
-                                                                varModSequence)
+                                                                varModSequence, bin_width)
         self.score = foregroundScore - backgroundScore
         self.foreground_score = foregroundScore
         self.background_score = backgroundScore
-
-    def calc_by_sets(self, c,
-                     mods = {}, ntermMods = {}, ctermMods = {},
-                     highResMs2 = False, ion_to_index_map = {}, 
-                     varMods = {}, varNtermMods = {}, varCtermMods = {},
-                     varModSequence = ''):
-        """ the sequences of b- and y-ions must be recomputed to tell
-            which set each fragment ion belongs to
-        """
-        if varMods or varNtermMods or varCtermMods:
-            assert varModSequence, "Variable modifications enzyme options specified, but string indicating which amino acids were var mods not supplied.  Exitting"
-            if highResMs2:
-                bions, yions = return_b_y_ions_var_mods(Peptide(self.peptide), c, 
-                                                        mods, ntermMods, ctermMods,
-                                                        ion_to_index_map,
-                                                        varMods, varNtermMods, varCtermMods,
-                                                        varModSequence)
-            else:
-                bions, yions = return_b_y_ions_lowres_var_mods(Peptide(self.peptide), c, 
-                                                               mods, ntermMods, ctermMods,
-                                                               ion_to_index_map,
-                                                               varMods, varNtermMods, varCtermMods,
-                                                               varModSequence)
-        else:
-            if highResMs2:
-                bions, yions = return_b_y_ions(Peptide(self.peptide), c, mods,
-                                               ntermMods, ctermMods,
-                                               ion_to_index_map)
-            else:
-                bions, yions = return_b_y_ions_lowres(Peptide(self.peptide), c, mods,
-                                                      ntermMods, ctermMods,
-                                                      ion_to_index_map)
-
-        self.bions = bions
-        self.yions = yions
 
 def copyArgs(argsA, argsB):
     """ Copy previously selected arguments to current parsed arguments
@@ -243,9 +208,10 @@ def parseInputOptions():
     searchParamsGroup.add_argument('--scan-id-list', type = str, action = 'store', default = '', help = help_scan_id_list)
     help_charges = """<comma-separated-integers|all> - precursor charges to search. To specify individual charges, list as comma-separated, e.g., 1,2,3 to search all charge 1, 2, or 3 spectra. Default=All."""
     searchParamsGroup.add_argument('--charges', type = str, action = 'store', default = 'All', help = help_charges)
-    # help_high_res_ms2 = """<T|F> - boolean, whether the search is over high-res ms2 (high-high) spectra. When this parameter is true, DRIP used the real valued masses of candidate peptides as its Gaussian means. For low-res ms2 (low-low or high-low), the observed m/z measures are much less accurate so these Gaussian means are learned using training data (see dripTrain). Default=False."""
-    help_precursor_filter = """<T|F> - boolean, when true, filter all peaks 1.5Da from the observed precursor mass. Default=False."""
-    searchParamsGroup.add_argument('--precursor-filter', type = str, action = 'store', default = 'false', help = help_precursor_filter)
+    help_high_res_ms2 = """<T|F> - boolean, whether the search is over high-res ms2 spectra. When this parameter is true, Didea checks whether bin-width < 1 and recalculates the number of bins used during scoring. Default=False."""
+    searchParamsGroup.add_argument('--high-res-ms2', type = str, action = 'store', default = 'false', help = help_high_res_ms2)
+    # help_precursor_filter = """<T|F> - boolean, when true, filter all peaks 1.5Da from the observed precursor mass. Default=False."""
+    # searchParamsGroup.add_argument('--precursor-filter', type = str, action = 'store', default = 'false', help = help_precursor_filter)
     help_decoys = '<T|F> - whether to create (shuffle target peptides) and search decoy peptides. Default = True'
     searchParamsGroup.add_argument('--decoys', type = str, action = 'store', 
                                    default = 'True', help = help_decoys)
@@ -256,8 +222,11 @@ def parseInputOptions():
     searchParamsGroup.add_argument('--top-match', type = int, action = 'store', 
                                    default = 1, help = help_top_match)
     help_num_bins = '<integer> - The number of bins to quantize observed spectrum. Default=2000.'
-    searchParamsGroup.add_argument('--num_bins', type = int, action = 'store', 
+    searchParamsGroup.add_argument('--num-bins', type = int, action = 'store', 
                                    default = 2000, help = help_num_bins)
+    help_bin_width = '<integer> - The bin width of m/z values. Default=1.0.'
+    searchParamsGroup.add_argument('--bin-width', type = float, action = 'store', 
+                                   default = 1.0, help = help_bin_width)
     ############## Cluster usage parameters
     clusterUsageGroup = parser.add_argument_group('clusterUsageGroup', 'Cluster data generation options.')
     help_num_cluster_jobs = '<integer> - the number of jobs to run in parallel. Default=1.'
@@ -314,12 +283,12 @@ def process_args(args):
     """
 
     # set true or false strings to booleans
-    # args.high_res_ms2 = check_arg_trueFalse(args.high_res_ms2)
+    args.high_res_ms2 = check_arg_trueFalse(args.high_res_ms2)
     args.cve = check_arg_trueFalse(args.cve)
     args.cluster_mode = check_arg_trueFalse(args.cluster_mode)
     args.write_cluster_scripts = check_arg_trueFalse(args.write_cluster_scripts)
     args.merge_cluster_results = check_arg_trueFalse(args.merge_cluster_results)
-    args.precursor_filter = check_arg_trueFalse(args.precursor_filter)
+    # args.precursor_filter = check_arg_trueFalse(args.precursor_filter)
 
     args.recalibrate = False
     if args.merge_cluster_results:
@@ -756,7 +725,8 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
 
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                                             mods = {}, ntermMods = {}, ctermMods = {},
-                                            varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = []):
+                                            varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
+                                            bin_width = 1.):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
@@ -766,18 +736,18 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
         bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard, 
                                                mods, ntermMods, ctermMods, 
                                                varMods, ntermVarMods, ctermVarMods,
-                                               varModSequence)
+                                               varModSequence, bin_width)
         sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard,
                                          mods, ntermMods, ctermMods, 
                                          varMods, ntermVarMods, ctermVarMods,
-                                         varModSequence)
+                                         varModSequence, bin_width)
     else:    
         bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
-                                      mods, ntermMods, ctermMods)
+                                      mods, ntermMods, ctermMods, bin_width)
         # bSeq, ySeq = byIonSepTauShift_flat(peptide,3, lastBin, tauCard,
         #                                    mods, ntermMods, ctermMods)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
-                                mods, ntermMods, ctermMods)
+                                mods, ntermMods, ctermMods, bin_width)
 
     sB += sY # collapse b- and y- charge2 vectors together
 
@@ -894,7 +864,8 @@ def logCve(theta, s):
 
 def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                     mods = {}, ntermMods = {}, ctermMods = {},
-                    varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = []):
+                    varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
+                    bin_width = 1.):
     """ For a generally defined (virtual evidence) emission function,
     calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
@@ -905,18 +876,18 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
         bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard, 
                                                mods, ntermMods, ctermMods, 
                                                varMods, ntermVarMods, ctermVarMods,
-                                               varModSequence)
+                                               varModSequence, bin_width)
         sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard,
                                          mods, ntermMods, ctermMods, 
                                          varMods, ntermVarMods, ctermVarMods,
-                                         varModSequence)
+                                         varModSequence, bin_width)
         # bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
         # sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
     else:    
         bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
-                                      mods, ntermMods, ctermMods)
+                                      mods, ntermMods, ctermMods, bin_width)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
-                                mods, ntermMods, ctermMods)
+                                mods, ntermMods, ctermMods, bin_width)
 
     # enable fancy indexing for the various lists of b-y ions
     bSeq = np.array(bSeq).astype(int)
@@ -1309,7 +1280,7 @@ def score_didea_spectra(args, data, ranges,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence)
+                                       varModSequence, args.bin_width)
                 charged_target_psms.append(curr_psm)
 
             for dp in decoy[(s.spectrum_id,charge)]:
@@ -1326,7 +1297,7 @@ def score_didea_spectra(args, data, ranges,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence)
+                                       varModSequence, args.bin_width)
                 charged_decoy_psms.append(curr_psm)
 
         top_target = max(charged_target_psms,key = scoref)
@@ -1408,7 +1379,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence)
+                                       varModSequence, args.bin_width)
                 charged_target_psms.append(curr_psm)
 
             for dp in (decoys.filter(m - mass_h, args.precursor_window, args.ppm)):
@@ -1425,7 +1396,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods,
-                                       varModSequence)
+                                       varModSequence, args.bin_width)
                 charged_decoy_psms.append(curr_psm)
 
         if charged_target_psms:
@@ -1462,8 +1433,14 @@ def runDidea_inCore(args):
     #    peptide[5] = binary string deoting variable modifications
     targets, decoys = didea_load_database(args, var_mods, nterm_var_mods, cterm_var_mods)
     preprocess = pipeline(args.normalize)
+
+    # check whether high- or low-res mode
+    if args.high_res_ms2:
+        if args.bin_width < 1.:
+            args.num_bins = int(round(max_mz / args.bin_width))
+
     ranges = simple_uniform_binwidth(0, args.num_bins,
-                                     bin_width = 1.0)
+                                     bin_width = args.bin_width)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
@@ -1487,8 +1464,14 @@ def runDidea(args):
     cterm_mods, cterm_var_mods = parse_var_mods(args.cterm_peptide_mods_spec, False)
 
     preprocess = pipeline(args.normalize)
+
+    # check whether high- or low-res mode
+    if args.high_res_ms2:
+        if args.bin_width < 1.:
+            args.num_bins = int(round(max_mz / args.bin_width))
+
     ranges = simple_uniform_binwidth(0, args.num_bins,
-                                     bin_width = 1.0)
+                                     bin_width = args.bin_width)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
