@@ -440,7 +440,7 @@ def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
 def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
                               mods = {}, ntermMods = {}, ctermMods = {}, 
                               varMods = {}, ntermVarMods = {}, ctermVarMods = {},
-                              varModSequence = []):
+                              varModSequence = [], bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
@@ -475,6 +475,7 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
         ys = []
         for c in range(1,charge):
             cf = float(c)
+            denom = float(c) * float(bin_width)
             # bOffset = cf*mass_h
             # boffset = ntermOffset + c
             # yoffset = ctermOffset + 18 + c
@@ -493,14 +494,15 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
                     yoffset += varMods[aaY][1]
             # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
             #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            bs.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
-            ys.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+            bs.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
+            ys.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
 
 def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
-                     mods = {}, ntermMods = {}, ctermMods = {}):
+                     mods = {}, ntermMods = {}, ctermMods = {}, 
+                     bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
@@ -529,6 +531,7 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
         ys = []
         for c in range(1,charge):
             cf = float(c)
+            denom = float(c) * float(bin_width)
             # boffset = ntermOffset + c
             # yoffset = ctermOffset + 18 + c
             boffset = ntermOffset + cf*mass_h
@@ -539,15 +542,16 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
                 yoffset += mods[aaY]
             # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
             #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            bs.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
-            ys.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+            bs.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
+            ys.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
 
 
 def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
-                          mods = {}, ntermMods = {}, ctermMods = {}):
+                          mods = {}, ntermMods = {}, ctermMods = {}, 
+                          bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
@@ -576,6 +580,7 @@ def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
         ys = []
         for c in range(1,charge):
             cf = float(c)
+            denom = float(c) * float(bin_width)
             # boffset = ntermOffset + c
             # yoffset = ctermOffset + 18 + c
             boffset = ntermOffset + cf*mass_h
@@ -586,12 +591,13 @@ def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
                 yoffset += mods[aaY]
             # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
             #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            bSeq.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
-            ySeq.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+            bSeq.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
+            ySeq.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
     return bSeq, ySeq
 
 def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75, 
-                   mods = {}, ntermMods = {}, ctermMods = {}):
+                   mods = {}, ntermMods = {}, ctermMods = {},
+                   bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
@@ -615,6 +621,7 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     for c in range(1,charge):
         cf = float(c)
+        denom = float(c) * float(bin_width)
         for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
             # boffset = ntermOffset + c
             # yoffset = ctermOffset + 18 + c
@@ -627,8 +634,8 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
 
             # nterm_fragments.append(min(int(round((b+boffset)/c)) + tauCard, rMax))
             # cterm_fragments.append(min(int(round((y+yoffset)/c)) + tauCard, rMax))
-            nterm_fragments.append(min(int(round((b+boffset)/cf)) + tauCard, rMax))
-            cterm_fragments.append(min(int(round((y+yoffset)/cf)) + tauCard, rMax))
+            nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
+            cterm_fragments.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
     return (nterm_fragments,cterm_fragments)
 
 def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
@@ -692,7 +699,7 @@ def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
 def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75, 
                             mods = {}, ntermMods = {}, ctermMods = {},
                             varMods = {}, ntermVarMods = {}, ctermVarMods = {},
-                            varModSequence = []):
+                            varModSequence = [], bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
@@ -721,9 +728,13 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     rMax = lastBin + tauCard + tauMin
     # iterate through possible charges
     for c in range(1,charge):
+        cf = float(c)
+        denom = float(c) * float(bin_width)
         for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:])):
-            boffset = ntermOffset + c
-            yoffset = ctermOffset + 18 + c
+            boffset = ntermOffset + cf*mass_h
+            yoffset = ctermOffset + mass_h2o + cf*mass_h
+            # boffset = ntermOffset + c
+            # yoffset = ctermOffset + 18 + c
             if aaB in mods:
                 boffset += mods[aaB]
             elif aaB in varMods:
@@ -736,8 +747,9 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
                 if varModSequence[ind+1]=='1':
                     yoffset += varMods[aaY][1]
 
-            nterm_fragments.append(min(int(round((b+boffset)/c)) + tauCard, rMax))
-            cterm_fragments.append(min(int(round((y+yoffset)/c)) + tauCard, rMax))
+            nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
+            cterm_fragments.append(min(int(round((y+yoffset)/deno
+)) + tauCard, rMax))
         # nterm_fragments += [min(int(round((b+c)/c)) + tauCard, rMax) for b in ntm[1:-1]]
         # cterm_fragments += [min(int(round((y+18+c)/c)) + tauCard, rMax) for y in ctm[1:-1]]
     return (nterm_fragments,cterm_fragments)
@@ -1360,8 +1372,6 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
         bins = histogram_spectra(s, ranges, max)
         bins[0] = 0.0
         bins[-1] = 0.0
-        # truebins = histogram_spectra(s, ranges, max)
-        # bins = bins_to_vecpt_ratios(truebins, args.vekind, args.lmb)
 
         for i in range(rMin, rMax):
             a = bins[min(max(i,0), lastBin)]
@@ -1641,7 +1651,6 @@ if __name__ == '__main__':
     args = parseInputOptions()
     process_args(args)
 
-    # out-of-core searches, use when digested peptide database cannot be loaded into memory
     if args.num_threads <= 1:
         runDidea_inCore(args)
     else:

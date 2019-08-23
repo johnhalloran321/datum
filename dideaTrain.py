@@ -731,7 +731,8 @@ def batchGradientAscentShiftPrior(options):
         # write output matrix
     fid = open(options.output, "w")
     if not options.cve:
-        lambdas[0] = options.lmb0Prior
+        # lambdas[0] = options.lmb0Prior
+        lambdas[0] = np.mean([lambdas[tau] for tau in range(-37,38)])
     else:
         # lambdas[37] = options.lmb0Prior
         lambdas[37] = np.mean(lambdas)
