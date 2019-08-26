@@ -800,7 +800,7 @@ def return_b_y_ions(peptide, charge, mods = {},
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     for c in range(1,max(charge,2)):
         if c > maxHighResFragmentIonCharge:
@@ -870,7 +870,7 @@ def return_b_y_ions_var_mods(peptide, charge,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]
@@ -918,7 +918,7 @@ def return_b_y_ions_var_mods(peptide, charge,
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     for c in range(1,max(charge,2)):
         if c > maxHighResFragmentIonCharge:
@@ -980,7 +980,7 @@ def return_b_y_ions_lowres(peptide, charge, mods = {},
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     for c in range(1,max(charge,2)):
         if c > maxFragmentIonCharge:
@@ -1044,7 +1044,7 @@ def return_b_y_ions_lowres_var_mods(peptide, charge,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]
@@ -1124,7 +1124,7 @@ def interleave_b_y_ions(peptide, charge,
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     for c in range(1,max(charge,2)):
         if c > maxHighResFragmentIonCharge:
@@ -1179,7 +1179,7 @@ def interleave_b_y_ions_var_mods(peptide, charge,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]
@@ -1239,7 +1239,7 @@ def interleave_b_y_ions_lowres(peptide, charge, mods = {},
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     for c in range(1,max(charge,2)):
         if c > maxFragmentIonCharge:
@@ -1295,7 +1295,7 @@ def interleave_b_y_ions_var_mods_lowres(peptide, charge,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]

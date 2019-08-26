@@ -156,7 +156,7 @@ def copyArgs(argsA, argsB):
     argsA.precursor_window_type = argsB.precursor_window_type
     argsA.scan_id_list = argsB.scan_id_list
     argsA.charges = argsB.charges
-    argsA.precursor_filter = argsB.precursor_filter
+    # argsA.precursor_filter = argsB.precursor_filter
     argsA.decoys = argsB.decoys
     argsA.num_threads = argsB.num_threads
     argsA.top_match = argsB.top_match
@@ -380,7 +380,7 @@ def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     tauMin = (tauCard - 1 ) / 2
     # calculate tau-radius around bin indices
@@ -428,7 +428,7 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]
@@ -487,7 +487,7 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     tauMin = (tauCard - 1 ) / 2
     # calculate tau-radius around bin indices
@@ -536,7 +536,7 @@ def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     tauMin = (tauCard - 1 ) / 2
     # calculate tau-radius around bin indices
@@ -582,7 +582,7 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     if p[0] in ntermMods:
         ntermOffset = ntermMods[p[0]]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
 
     tauMin = (tauCard - 1 ) / 2
     # calculate tau-radius around bin indices
@@ -630,7 +630,7 @@ def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]
@@ -687,7 +687,7 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
         if varModSequence[0] == '2': # denotes an nterm variable modification
             ntermOffset = ntermVarMods[p[0]][1]
     if p[-1] in ctermMods:
-        ctermOffset = ctermMods[p[0]]
+        ctermOffset = ctermMods[p[-1]]
     elif p[-1] in ctermVarMods:
         if varModSequence[-1] == '3': # denotes a cterm variable modification
             ctermOffset = ctermVarMods[p[-1]][1]
@@ -1438,11 +1438,19 @@ def runDidea_inCore(args):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(round(max_mz / args.bin_width))
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        for tau in range(-37,38):
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+    else:
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
+    print args.num_bins, args.bin_width
 
     ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = args.bin_width)
-    learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-    learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
     scored_psms = []
     ################################ load target and decoy databases using didea_load_database, score accoringly
@@ -1603,10 +1611,23 @@ def runDidea_multithread_inCore(options):
     #    peptide[5] = binary string deoting variable modifications
     targets, decoys = didea_load_database(args, var_mods, nterm_var_mods, cterm_var_mods)
     preprocess = pipeline(args.normalize)
+
+    # check whether high- or low-res mode
+    if args.high_res_ms2:
+        if args.bin_width < 1.:
+            args.num_bins = int(round(max_mz / args.bin_width))
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        for tau in range(-37,38):
+            learnedLambdas2[tau] = 1.0
+            learnedLambdas3[tau] = 1.0
+    else:
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
+
     ranges = simple_uniform_binwidth(0, args.num_bins,
-                                     bin_width = 1.0)
-    learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-    learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+                                     bin_width = args.bin_width)
 
     pool = mp.Pool(processes = numThreads)
     # perform map: distribute jobs to CPUs
