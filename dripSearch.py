@@ -642,7 +642,6 @@ def make_drip_data_highres(args, data,
                 if args.filt_theo_peaks:
                     filter_theoretical_peaks(bNy, minMz, maxMz)
                 theo_spec_dict[s.spectrum_id, theoSpecKey] = bNy
-
                 for i in bNy:
                     ion_dict[i] = 1
             for dp in dl:

@@ -363,12 +363,13 @@ def load_lambdas(filename, tauMin = -37, tauMax = 37):
     return learnedLambdas
 
 def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
-                       mods = {}, ntermMods = {}, ctermMods = {}):
+                       mods = {}, ntermMods = {}, ctermMods = {}, 
+                       bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') # , mass_op)
     nterm_fragments = []
     cterm_fragments = []
     byPairs = []
@@ -386,22 +387,22 @@ def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     # calculate tau-radius around bin indices
     rMax = lastBin + tauCard + tauMin
     # iterate through possible charges
-    for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
+    boffset = ntermOffset
+    yoffset = ctermOffset
+    for b,y,aaB,aaY in zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:])):
         by = []
+        if aaB in mods:
+            boffset += mods[aaB]
+        if aaY in mods:
+            yoffset += mods[aaY]
         for c in range(1,charge):
             cf = float(c)
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
-            if aaB in mods:
-                boffset += mods[aaB]
-            if aaY in mods:
-                yoffset += mods[aaY]
-            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
-            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            by.append( (min(int(round((b+boffset)/cf)) + tauCard, rMax), 
-                        min(int(round((y+yoffset)/cf)) + tauCard, rMax) ) )
+            denom = cf * float(bin_width)
+            c_boffset = cf*mass_h + boffset
+            c_yoffset = mass_h2o + cf*mass_h + yoffset
+
+            by.append( (min(int(round((b+c_boffset)/denom)) + tauCard, rMax), 
+                        min(int(round((y+c_yoffset)/denom)) + tauCard, rMax) ) )
         byPairs.append(by)
 
     return byPairs
@@ -414,7 +415,7 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') # , mass_op)
     nterm_fragments = []
     cterm_fragments = []
     ntermOffset = 0
@@ -439,32 +440,29 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     bSeq = []
     ySeq = []
-    for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:])):
+    boffset = ntermOffset
+    yoffset = ctermOffset
+    for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:]))):
         bs = []
         ys = []
+        if aaB in mods:
+            boffset += mods[aaB]
+        elif aaB in varMods:
+            if varModSequence[ind]=='1':
+                boffset += varMods[aaB][1]
+        if aaY in mods:
+            yoffset += mods[aaY]
+        elif aaY in varMods:
+            if varModSequence[ind+1]=='1':
+                yoffset += varMods[aaY][1]
+
         for c in range(1,charge):
             cf = float(c)
             denom = float(c) * float(bin_width)
-            # bOffset = cf*mass_h
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
-            if aaB in mods:
-                boffset += mods[aaB]
-            elif aaB in varMods:
-                if varModSequence[ind]=='1':
-                    boffset += varMods[aaB][1]
-
-            if aaY in mods:
-                yoffset += mods[aaY]
-            elif aaY in varMods:
-                if varModSequence[ind+1]=='1':
-                    yoffset += varMods[aaY][1]
-            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
-            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            bs.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
-            ys.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
+            c_boffset = cf*mass_h + boffset
+            c_yoffset = mass_h2o + cf*mass_h + yoffset
+            bs.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
+            ys.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
@@ -476,7 +474,7 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') # , mass_op)
     nterm_fragments = []
     cterm_fragments = []
     ntermOffset = 0
@@ -495,24 +493,23 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     bSeq = []
     ySeq = []
-    for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
+    boffset = ntermOffset
+    yoffset = ctermOffset
+    for b,y,aaB,aaY in zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:])):
         bs = []
         ys = []
+        if aaB in mods:
+            boffset += mods[aaB]
+        if aaY in mods:
+            yoffset += mods[aaY]
+
         for c in range(1,charge):
             cf = float(c)
             denom = float(c) * float(bin_width)
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
-            if aaB in mods:
-                boffset += mods[aaB]
-            if aaY in mods:
-                yoffset += mods[aaY]
-            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
-            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            bs.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
-            ys.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
+            c_boffset = cf*mass_h + boffset
+            c_yoffset = mass_h2o + cf*mass_h + yoffset
+            bs.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
+            ys.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
@@ -525,7 +522,7 @@ def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') # , mass_op)
     nterm_fragments = []
     cterm_fragments = []
     ntermOffset = 0
@@ -544,24 +541,21 @@ def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     bSeq = []
     ySeq = []
-    for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
-        bs = []
-        ys = []
+    boffset = ntermOffset
+    yoffset = ctermOffset
+    for b,y,aaB,aaY in zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:])):
+        if aaB in mods:
+            boffset += mods[aaB]
+        if aaY in mods:
+            yoffset += mods[aaY]
+
         for c in range(1,charge):
             cf = float(c)
             denom = float(c) * float(bin_width)
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
-            if aaB in mods:
-                boffset += mods[aaB]
-            if aaY in mods:
-                yoffset += mods[aaY]
-            # by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
-            #             min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
-            bSeq.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
-            ySeq.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
+            c_boffset = cf*mass_h + boffset
+            c_yoffset = mass_h2o + cf*mass_h + yoffset
+            bSeq.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
+            ySeq.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
     return bSeq, ySeq
 
 def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75, 
@@ -571,7 +565,7 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') #, mass_op)
     nterm_fragments = []
     cterm_fragments = []
     ntermOffset = 0
@@ -590,17 +584,17 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     for c in range(1,charge):
         cf = float(c)
-        denom = float(c) * float(bin_width)
-        for b,y,aaB,aaY in zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:]):
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
+        denom = cf * float(bin_width)
+        boffset = ntermOffset + cf*mass_h
+        yoffset = ctermOffset + mass_h2o + cf*mass_h
+        for b,y,aaB,aaY in zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:])):
             if aaB in mods:
                 boffset += mods[aaB]
             if aaY in mods:
                 yoffset += mods[aaY]
-
+            # if peptide.seq == 'VAGFVTHLMK':
+            #     print (b+boffset)/denom
+            #     print (y+yoffset)/denom
             # nterm_fragments.append(min(int(round((b+boffset)/c)) + tauCard, rMax))
             # cterm_fragments.append(min(int(round((y+yoffset)/c)) + tauCard, rMax))
             nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
@@ -610,12 +604,12 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
 def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
                                 mods = {}, ntermMods = {}, ctermMods = {}, 
                                 varMods = {}, ntermVarMods = {}, ctermVarMods = {},
-                                varModSequence = []):
+                                varModSequence = [], bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') # , mass_op)
     nterm_fragments = []
     cterm_fragments = []
     byPairs = []
@@ -639,28 +633,28 @@ def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     # calculate tau-radius around bin indices
     rMax = lastBin + tauCard + tauMin
     # iterate through possible charges
-    for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:])):
+    boffset = ntermOffset
+    yoffset = ctermOffset
+    for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:]))):
         by = []
+        if aaB in mods:
+            boffset += mods[aaB]
+        elif aaB in varMods:
+            if varModSequence[ind]=='1':
+                boffset += varMods[aaB][1]
+        if aaY in mods:
+            yoffset += mods[aaY]
+        elif aaY in varMods:
+            if varModSequence[ind+1]=='1':
+                yoffset += varMods[aaY][1]
+
         for c in range(1,charge):
             cf = float(c)
-            # bOffset = cf*mass_h
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
-            if aaB in mods:
-                boffset += mods[aaB]
-            elif aaB in varMods:
-                if varModSequence[ind]=='1':
-                    boffset += varMods[aaB][1]
-
-            if aaY in mods:
-                yoffset += mods[aaY]
-            elif aaY in varMods:
-                if varModSequence[ind+1]=='1':
-                    yoffset += varMods[aaY][1]
-            by.append( (min(int(round((b+boffset)/c)) + tauCard, rMax), 
-                        min(int(round((y+yoffset)/c)) + tauCard, rMax) ) )
+            denom = cf * float(bin_width)
+            c_boffset = cf*mass_h + boffset
+            c_yoffset = mass_h2o + cf*mass_h + yoffset
+            by.append( (min(int(round((b+c_boffset)/denom)) + tauCard, rMax), 
+                        min(int(round((y+c_yoffset)/denom)) + tauCard, rMax) ) )
         byPairs.append(by)
 
     return byPairs
@@ -673,7 +667,7 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
 
     """
     mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic') # , mass_op)
     nterm_fragments = []
     cterm_fragments = []
     ntermOffset = 0
@@ -698,12 +692,10 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     for c in range(1,charge):
         cf = float(c)
-        denom = float(c) * float(bin_width)
-        for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], ctm[1:-1], peptide.seq[:-1], peptide.seq[1:])):
-            boffset = ntermOffset + cf*mass_h
-            yoffset = ctermOffset + mass_h2o + cf*mass_h
-            # boffset = ntermOffset + c
-            # yoffset = ctermOffset + 18 + c
+        denom = cf * float(bin_width)
+        boffset = ntermOffset + cf*mass_h
+        yoffset = ctermOffset + mass_h2o + cf*mass_h
+        for ind, (b,y,aaB,aaY) in enumerate(zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:]))):
             if aaB in mods:
                 boffset += mods[aaB]
             elif aaB in varMods:
@@ -717,10 +709,7 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
                     yoffset += varMods[aaY][1]
 
             nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
-            cterm_fragments.append(min(int(round((y+yoffset)/deno
-)) + tauCard, rMax))
-        # nterm_fragments += [min(int(round((b+c)/c)) + tauCard, rMax) for b in ntm[1:-1]]
-        # cterm_fragments += [min(int(round((y+18+c)/c)) + tauCard, rMax) for y in ctm[1:-1]]
+            cterm_fragments.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
     return (nterm_fragments,cterm_fragments)
 
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
@@ -755,6 +744,21 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     ySeq = np.array(ySeq).astype(int)
     sB = np.array(sB).astype(int)
     # sY = np.array(sY).astype(int)
+
+    # # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
+    # if peptide.seq == 'VAGFVTHLMK':
+    #     print sorted(sB)
+    #     # np.set_printoptions(threshold=sys.maxsize)
+    #     # print bins
+    #     # print sum([1 for i in sB if bins[i] > 0.])
+    #     # print sum([bins[i] for i in sB])
+    #     # print sum(bins)
+    #     # for i in sB:
+    #     #     print bins[i]
+    #     # for i in bSeq:
+    #     #     print bins[i]
+    #     # for i in ySeq:
+    #     #     print bins[i]
 
     backgroundScore = 0.0
     cLogProb = math.log(2.0)
@@ -1443,6 +1447,8 @@ def runDidea_inCore(args):
         for tau in range(-37,38):
             learnedLambdas2[tau] = 0.25
             learnedLambdas3[tau] = 0.25
+        learnedLambdas2[0] = 1.0
+        learnedLambdas3[0] = 1.0
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1548,10 +1554,27 @@ def runDidea_multithread(options):
     partitions[-1].sort(key = lambda r: r[2])
 
     preprocess = pipeline(args.normalize)
+    # check whether high- or low-res mode
+    if args.high_res_ms2:
+        if args.bin_width < 1.:
+            args.num_bins = int(round(max_mz / args.bin_width))
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        for tau in range(-37,38):
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+        # learnedLambdas2[0] = 1.0
+        # learnedLambdas3[0] = 1.0
+    else:
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
+    print args.num_bins, args.bin_width
+
     ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = 1.0)
-    learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-    learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+    # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+    # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
     pool = mp.Pool(processes = numThreads)
     # perform map: distribute jobs to CPUs
@@ -1619,12 +1642,15 @@ def runDidea_multithread_inCore(options):
         learnedLambdas2 = {}
         learnedLambdas3 = {}
         for tau in range(-37,38):
-            learnedLambdas2[tau] = 1.0
-            learnedLambdas3[tau] = 1.0
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+        learnedLambdas2[0] = 1.0
+        learnedLambdas3[0] = 1.0
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
+    print args.num_bins, args.bin_width
 
     ranges = simple_uniform_binwidth(0, args.num_bins,
                                      bin_width = args.bin_width)
