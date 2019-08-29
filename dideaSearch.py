@@ -29,7 +29,11 @@ from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz
 from dideaTrain import cve
 from digest import (check_arg_trueFalse,
                         parse_var_mods, load_digested_peptides_var_mods)
-from pyFiles.dideaEncoding import histogram_spectra, simple_uniform_binwidth, bins_to_vecpt_ratios
+from pyFiles.dideaEncoding import (histogram_spectra, simple_uniform_binwidth,
+                                   round_op, 
+                                   peptide_mod_offset_screen, peptide_var_mod_offset_screen,
+                                   by_sepTauShift, by_tauShift)
+# , bins_to_vecpt_ratios
 
 from pyFiles.shard_spectra import (load_spectra,
                                    load_spectra_ret_dict,
@@ -361,9 +365,6 @@ def load_lambdas(filename, tauMin = -37, tauMax = 37):
         learnedLambdas[tau] = l
 
     return learnedLambdas
-
-def round_op(p_mass, denom, tauCard, rMax):
-    return min(int(round(p_mass/denom)) + tauCard, rMax)
 
 def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
                        mods = {}, ntermMods = {}, ctermMods = {}, 
@@ -732,6 +733,8 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
             cterm_fragments.append(round_op(y+yoffset, denom, tauCard, rMax))
     return (nterm_fragments,cterm_fragments)
 
+    
+
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                                             mods = {}, ntermMods = {}, ctermMods = {},
                                             varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
@@ -741,22 +744,33 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     """
     lastBin = num_bins-1
     tauCard = 75
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic')
     if varMods or ntermVarMods or ctermVarMods:
-        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard, 
-                                               mods, ntermMods, ctermMods, 
-                                               varMods, ntermVarMods, ctermVarMods,
-                                               varModSequence, bin_width)
-        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard,
-                                         mods, ntermMods, ctermMods, 
-                                         varMods, ntermVarMods, ctermVarMods,
-                                         varModSequence, bin_width)
-    else:    
-        # bSeq, ySeq = byIonSepTauShift_flat(peptide,3, lastBin, tauCard,
-        #                                    mods, ntermMods, ctermMods)
-        bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
-                                      mods, ntermMods, ctermMods, bin_width)
-        sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
-                                mods, ntermMods, ctermMods, bin_width)
+        b_offsets, y_offsets = peptide_var_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods, 
+                                                             varMods, ntermVarMods, ctermVarMods,varModSequence)
+    else:
+        b_offsets, y_offsets = peptide_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods)
+
+    bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, b_offsets, y_offsets, 
+                                lastBin, tauCard, bin_width)
+    sB, sY = by_tauShift(ntm, ctm, 2, b_offsets, y_offsets, 
+                         lastBin, tauCard, bin_width)
+    # if varMods or ntermVarMods or ctermVarMods:
+    #     bSeq, ySeq = by_sepTauShift_var_mods(peptide,3, lastBin, tauCard, 
+    #                                          mods, ntermMods, ctermMods, 
+    #                                          varMods, ntermVarMods, ctermVarMods,
+    #                                            varModSequence, bin_width)
+    #     sB, sY = by_tauShift_var_mods(peptide,2, lastBin, tauCard,
+    #                                   mods, ntermMods, ctermMods, 
+    #                                   varMods, ntermVarMods, ctermVarMods,
+    #                                   varModSequence, bin_width)
+    # else:    
+    #     # bSeq, ySeq = byIonSepTauShift_flat(peptide,3, lastBin, tauCard,
+    #     #                                    mods, ntermMods, ctermMods)
+    #     bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, lastBin, tauCard,
+    #                                 b_offsets, y_offsets bin_width)
+    #     sB, sY = by_tauShift(peptide,2, lastBin, tauCard,
+    #                          mods, ntermMods, ctermMods, bin_width)
 
     sB += sY # collapse b- and y- charge2 vectors together
 
