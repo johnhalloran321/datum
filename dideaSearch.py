@@ -465,8 +465,10 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
             denom = float(c) * float(bin_width)
             c_boffset = cf*mass_h + boffset
             c_yoffset = mass_h2o + cf*mass_h + yoffset
-            bs.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
-            ys.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
+            bs.append(round_op(b+c_boffset, denom, tauCard, rMax))
+            ys.append(round_op(y+c_yoffset, denom, tauCard, rMax))
+            # bs.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
+            # ys.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
@@ -512,8 +514,8 @@ def byIonSepTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
             denom = float(c) * float(bin_width)
             c_boffset = cf*mass_h + boffset
             c_yoffset = mass_h2o + cf*mass_h + yoffset
-            bs.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
-            ys.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
+            bs.append(round_op(b+c_boffset, denom, tauCard, rMax))
+            ys.append(round_op(y+c_yoffset, denom, tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
@@ -558,8 +560,8 @@ def byIonSepTauShift_flat(peptide, charge, lastBin = 1999, tauCard = 75,
             denom = float(c) * float(bin_width)
             c_boffset = cf*mass_h + boffset
             c_yoffset = mass_h2o + cf*mass_h + yoffset
-            bSeq.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
-            ySeq.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
+            bSeq.append(round_op(b+c_boffset, denom, tauCard, rMax))
+            ySeq.append(round_op(y+c_yoffset, denom, tauCard, rMax))
     return bSeq, ySeq
 
 def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75, 
@@ -574,6 +576,14 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     cterm_fragments = []
     ntermOffset = 0
     ctermOffset = 0
+
+    if peptide.seq == 'VAGFVTHLMK':
+        print peptide.seq
+        print peptide.mass
+        print ntm
+        print peptide.seq[:-1]
+        print ctm
+        print peptide.seq[1:]
 
     p = peptide.seq
     # check n-/c-term amino acids for modifications
@@ -661,8 +671,10 @@ def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
             denom = cf * float(bin_width)
             c_boffset = cf*mass_h + boffset
             c_yoffset = mass_h2o + cf*mass_h + yoffset
-            by.append( (min(int(round((b+c_boffset)/denom)) + tauCard, rMax), 
-                        min(int(round((y+c_yoffset)/denom)) + tauCard, rMax) ) )
+            by.append( (round_op(b+c_boffset, denom, tauCard, rMax), 
+                        round_op(y+c_yoffset, denom, tauCard, rMax) ) )
+            # by.append( (min(int(round((b+c_boffset)/denom)) + tauCard, rMax), 
+            #             min(int(round((y+c_yoffset)/denom)) + tauCard, rMax) ) )
         byPairs.append(by)
 
     return byPairs
@@ -716,8 +728,8 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
                 if varModSequence[ind+1]=='1':
                     yoffset += varMods[aaY][1]
 
-            nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
-            cterm_fragments.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
+            nterm_fragments.append(round_op(b+boffset, denom, tauCard, rMax))
+            cterm_fragments.append(round_op(y+yoffset, denom, tauCard, rMax))
     return (nterm_fragments,cterm_fragments)
 
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
@@ -739,10 +751,10 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
                                          varMods, ntermVarMods, ctermVarMods,
                                          varModSequence, bin_width)
     else:    
-        bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
-                                      mods, ntermMods, ctermMods, bin_width)
         # bSeq, ySeq = byIonSepTauShift_flat(peptide,3, lastBin, tauCard,
         #                                    mods, ntermMods, ctermMods)
+        bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
+                                      mods, ntermMods, ctermMods, bin_width)
         sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
                                 mods, ntermMods, ctermMods, bin_width)
 
