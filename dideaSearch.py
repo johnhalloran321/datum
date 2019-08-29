@@ -362,6 +362,9 @@ def load_lambdas(filename, tauMin = -37, tauMax = 37):
 
     return learnedLambdas
 
+def round_op(p_mass, denom, tauCard, rMax):
+    return min(int(round(p_mass/denom)) + tauCard, rMax)
+
 def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
                        mods = {}, ntermMods = {}, ctermMods = {}, 
                        bin_width = 1.):
@@ -389,6 +392,7 @@ def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     # iterate through possible charges
     boffset = ntermOffset
     yoffset = ctermOffset
+
     for b,y,aaB,aaY in zip(ntm[1:-1], reversed(ctm[1:-1]), peptide.seq[:-1], reversed(peptide.seq[1:])):
         by = []
         if aaB in mods:
@@ -401,8 +405,8 @@ def byIonPairsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
             c_boffset = cf*mass_h + boffset
             c_yoffset = mass_h2o + cf*mass_h + yoffset
 
-            by.append( (min(int(round((b+c_boffset)/denom)) + tauCard, rMax), 
-                        min(int(round((y+c_yoffset)/denom)) + tauCard, rMax) ) )
+            by.append( ( round_op(b+c_boffset,denom, tauCard, rMax), 
+                         round_op(y+c_yoffset,denom, tauCard, rMax) ) )
         byPairs.append(by)
 
     return byPairs
@@ -581,6 +585,10 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     tauMin = (tauCard - 1 ) / 2
     # calculate tau-radius around bin indices
     rMax = lastBin + tauCard + tauMin
+
+    # # define round operation
+    # round_op = lambda ion, d: min(int(round(ion/d) + tauCard, rMax))
+
     # iterate through possible charges
     for c in range(1,charge):
         cf = float(c)
@@ -592,13 +600,13 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
                 boffset += mods[aaB]
             if aaY in mods:
                 yoffset += mods[aaY]
-            # if peptide.seq == 'VAGFVTHLMK':
-            #     print (b+boffset)/denom
-            #     print (y+yoffset)/denom
-            # nterm_fragments.append(min(int(round((b+boffset)/c)) + tauCard, rMax))
-            # cterm_fragments.append(min(int(round((y+yoffset)/c)) + tauCard, rMax))
-            nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
-            cterm_fragments.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
+            if peptide.seq == 'VAGFVTHLMK':
+                print (b+boffset)/denom
+                print (y+yoffset)/denom
+            nterm_fragments.append(round_op(b+boffset,denom, tauCard, rMax))
+            cterm_fragments.append(round_op(y+yoffset,denom, tauCard, rMax))
+            # nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
+            # cterm_fragments.append(min(int(round((y+yoffset)/denom)) + tauCard, rMax))
     return (nterm_fragments,cterm_fragments)
 
 def byIonPairsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
@@ -745,20 +753,20 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     sB = np.array(sB).astype(int)
     # sY = np.array(sY).astype(int)
 
-    # # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
-    # if peptide.seq == 'VAGFVTHLMK':
-    #     print sorted(sB)
+    # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
+    if peptide.seq == 'VAGFVTHLMK':
+        print sorted(sB)
     #     # np.set_printoptions(threshold=sys.maxsize)
     #     # print bins
-    #     # print sum([1 for i in sB if bins[i] > 0.])
-    #     # print sum([bins[i] for i in sB])
+        print sum([1 for i in sB if bins[i] > 0.])
+        print sum([bins[i] for i in sB])
     #     # print sum(bins)
-    #     # for i in sB:
-    #     #     print bins[i]
-    #     # for i in bSeq:
-    #     #     print bins[i]
-    #     # for i in ySeq:
-    #     #     print bins[i]
+        for i in sB:
+            print i-75, bins[i-1], bins[i], bins[i+1]
+        for i in bSeq:
+            print i-75, bins[i]
+        for i in ySeq:
+            print i-75, bins[i]
 
     backgroundScore = 0.0
     cLogProb = math.log(2.0)
@@ -1338,7 +1346,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
     rMin = -tauCard
     rMax = lastBin + tauCard
 
-    bins2 = np.empty( (nb + 2 * tauCard)  )
+    bins2 = np.empty( (nb + 2 * tauCard) )
     validcharges = args.charges
 
     for s in spectra:
@@ -1442,20 +1450,22 @@ def runDidea_inCore(args):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(round(max_mz / args.bin_width))
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        for tau in range(-37,38):
-            learnedLambdas2[tau] = 0.25
-            learnedLambdas3[tau] = 0.25
-        learnedLambdas2[0] = 1.0
-        learnedLambdas3[0] = 1.0
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # for tau in range(-37,38):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        # learnedLambdas2[0] = 1.0
+        # learnedLambdas3[0] = 1.0
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
     print args.num_bins, args.bin_width
 
-    ranges = simple_uniform_binwidth(0, args.num_bins,
+    ranges = simple_uniform_binwidth(0.0, args.num_bins,
                                      bin_width = args.bin_width)
 
     scored_psms = []
@@ -1484,7 +1494,7 @@ def runDidea(args):
         if args.bin_width < 1.:
             args.num_bins = int(round(max_mz / args.bin_width))
 
-    ranges = simple_uniform_binwidth(0, args.num_bins,
+    ranges = simple_uniform_binwidth(0.0, args.num_bins,
                                      bin_width = args.bin_width)
     learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1558,21 +1568,23 @@ def runDidea_multithread(options):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(round(max_mz / args.bin_width))
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        for tau in range(-37,38):
-            learnedLambdas2[tau] = 0.25
-            learnedLambdas3[tau] = 0.25
-        # learnedLambdas2[0] = 1.0
-        # learnedLambdas3[0] = 1.0
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # for tau in range(-37,38):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        # # learnedLambdas2[0] = 1.0
+        # # learnedLambdas3[0] = 1.0
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
     print args.num_bins, args.bin_width
 
-    ranges = simple_uniform_binwidth(0, args.num_bins,
-                                     bin_width = 1.0)
+    ranges = simple_uniform_binwidth(0.0, args.num_bins,
+                                     bin_width = args.bin_width)
     # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
     # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
@@ -1638,21 +1650,23 @@ def runDidea_multithread_inCore(options):
     # check whether high- or low-res mode
     if args.high_res_ms2:
         if args.bin_width < 1.:
-            args.num_bins = int(round(max_mz / args.bin_width))
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        for tau in range(-37,38):
-            learnedLambdas2[tau] = 0.25
-            learnedLambdas3[tau] = 0.25
-        learnedLambdas2[0] = 1.0
-        learnedLambdas3[0] = 1.0
+            args.num_bins = int(math.ceil(max_mz / args.bin_width))
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # for tau in range(-37,38):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        # learnedLambdas2[0] = 1.0
+        # learnedLambdas3[0] = 1.0
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
     print args.num_bins, args.bin_width
 
-    ranges = simple_uniform_binwidth(0, args.num_bins,
+    ranges = simple_uniform_binwidth(0.0, args.num_bins,
                                      bin_width = args.bin_width)
 
     pool = mp.Pool(processes = numThreads)
