@@ -18,4 +18,5 @@ mass_h2o_avg = 18.0153
 mass_co = 27.9949
 mass_co_avg = 28.0101
 
+# Didea specific constants
 max_mz = 2000

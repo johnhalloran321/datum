@@ -5,12 +5,15 @@
 # See COPYING or http://opensource.org/licenses/OSL-3.0
 # Command line parsing utilities.
 
+from constants import mass_h, mass_h2o, max_mz
+import math
+
 def simple_uniform_binwidth(min_mass, num_bins, bin_width = 1.0005079, offset = 0.0):
     tick_points = [ ]
     last = min_mass + offset
     while len(tick_points) < num_bins:
         tick_points.append( (last, last + bin_width) )
-        last = last + bin_width
+        last += bin_width
     return tick_points
 
 def histogram_spectra(spectrum, ranges, op = max, normalize = False):
@@ -102,3 +105,126 @@ def bins_to_vecpt_ratios(bins, kind = 'expbased', lmb = 0.5):
     ratios[-1] = 0.0
 
     return ratios
+
+# theoretical spectrum functions
+def round_op(p_mass, denom, tauCard, rMax):
+    return min(int(math.floor(p_mass/denom)) + tauCard, rMax)
+
+def peptide_mod_offset_screen(p, mods = {}, ntermMods = {}, ctermMods = {}):
+    """ Given (static) mods, calculate what the offsets should occur for the b-/y-ions
+        p - peptide string
+        Note: the screen returns the offset for each b- and y-ion, traversing the peptide
+              from left to right.  For y-ions, includes mass(h2o)
+    """ 
+    boffset = 0.
+    yoffset = mass_h2o
+    b_offsets = []
+    y_offsets = []
+    if p[0] in ntermMods:
+        boffset += ntermMods[p[0]]
+    if p[-1] in ctermMods:
+        yoffset += ctermMods[p[-1]]
+    # reverse peptide sequence to calculate y-ion offset linearly, in reverse
+    for aaB,aaY in zip(p[:-1], reversed(p[1:])):
+        if aaB in mods:
+            boffset += mods[aaB]
+        if aaY in mods:
+            yoffset += mods[aaY]
+        b_offsets.append(boffset)
+        y_offsets.append(yoffset)
+    
+    # reverse y-ions offsets back to proper order
+    y_offsets.reverse()
+
+    return b_offsets, y_offsets
+
+def peptide_var_mod_offset_screen(p, mods = {}, ntermMods = {}, ctermMods = {}, 
+                                  varMods = {}, ntermVarMods = {}, ctermVarMods = {},
+                                  varModSequence = []):
+    """ Given (variable) mods, calculate what the offsets should occur for the b-/y-ions
+        p - peptide string
+        Note: the screen returns the offset for each b- and y-ion, traversing the peptide
+              from left to right.  For y-ions, includes mass(h2o)
+    """ 
+    boffset = 0.
+    yoffset = mass_h2o
+    b_offsets = []
+    y_offsets = []
+    # check n-/c-term amino acids for modifications
+    if p[0] in ntermMods:
+        boffset = ntermMods[p[0]]
+    elif p[0] in ntermVarMods:
+        if varModSequence[0] == '2': # denotes an nterm variable modification
+            boffset = ntermVarMods[p[0]][1]
+    if p[-1] in ctermMods:
+        yoffset = ctermMods[p[-1]]
+    elif p[-1] in ctermVarMods:
+        if varModSequence[-1] == '3': # denotes a cterm variable modification
+            yoffset = ctermVarMods[p[-1]][1]
+
+    # reverse peptide sequence to calculate y-ion offset linearly, in reverse
+    for aaB,aaY in zip(p[:-1], reversed(p[1:])):
+        if aaB in mods:
+            boffset += mods[aaB]
+        elif aaB in varMods:
+            if varModSequence[ind]=='1':
+                boffset += varMods[aaB][1]
+        if aaY in mods:
+            yoffset += mods[aaY]
+        elif aaY in varMods:
+            if varModSequence[ind+1]=='1':
+                yoffset += varMods[aaY][1]
+
+        b_offsets.append(boffset)
+        y_offsets.append(yoffset)
+    
+    # reverse y-ions offsets back to proper order
+    y_offsets.reverse()
+
+    return b_offsets, y_offsets
+
+
+def by_sepTauShift(ntm, ctm, charge, b_offsets, y_offsets, 
+                   lastBin = 1999, tauCard = 75,bin_width = 1.):
+    """Given peptide and charge, return b- and y-ions in seperate vectors
+
+    """
+    tauMin = (tauCard - 1 ) / 2
+    # calculate tau-radius around bin indices
+    rMax = lastBin + tauCard + tauMin
+    # iterate through possible charges
+    bSeq = []
+    ySeq = []
+    for b, y, boffset, yoffset in zip(ntm[1:-1], ctm[1:-1], b_offsets, y_offsets):
+        bs = []
+        ys = []
+        for c in range(1,charge):
+            cf = float(c)
+            denom = float(c) * float(bin_width)
+            c_boffset = cf*mass_h + boffset
+            c_yoffset = cf*mass_h + yoffset
+            bs.append(round_op(b+c_boffset, denom, tauCard, rMax))
+            ys.append(round_op(y+c_yoffset, denom, tauCard, rMax))
+        bSeq.append(bs)
+        ySeq.append(ys)
+    return bSeq, ySeq
+
+
+def by_tauShift(ntm, ctm, charge, b_offsets, y_offsets, 
+                lastBin = 1999, tauCard = 75, bin_width = 1.):
+    """Given peptide and charge, return b- and y-ions in seperate vectors
+
+    """
+    tauMin = (tauCard - 1 ) / 2
+    # calculate tau-radius around bin indices
+    rMax = lastBin + tauCard + tauMin
+    nterm_fragments = []
+    cterm_fragments = []
+    # iterate through possible charges
+    for c in range(1,charge):
+        cf = float(c)
+        denom = cf * float(bin_width)
+        for b, y, boffset, yoffset in zip(ntm[1:-1], ctm[1:-1], b_offsets, y_offsets):
+            nterm_fragments.append(round_op(b+boffset+cf*mass_h,denom, tauCard, rMax))
+            cterm_fragments.append(round_op(y+yoffset+cf*mass_h,denom, tauCard, rMax))
+    return (nterm_fragments,cterm_fragments)

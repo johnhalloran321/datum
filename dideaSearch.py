@@ -781,18 +781,25 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
 
     # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
     if peptide.seq == 'VAGFVTHLMK':
-        print sorted(sB)
-    #     # np.set_printoptions(threshold=sys.maxsize)
-    #     # print bins
-        print sum([1 for i in sB if bins[i] > 0.])
-        print sum([bins[i] for i in sB])
-    #     # print sum(bins)
-        for i in sB:
-            print i-75, bins[i-1], bins[i], bins[i+1]
-        for i in bSeq:
-            print i-75, bins[i]
-        for i in ySeq:
-            print i-75, bins[i]
+        print peptide.seq
+        print b_offsets
+        print y_offsets
+        print ntm
+        print ctm
+        print bSeq - 75
+        print ySeq - 75
+    #     print sorted(sB)
+    # #     # np.set_printoptions(threshold=sys.maxsize)
+    # #     # print bins
+    #     print sum([1 for i in sB if bins[i] > 0.])
+    #     print sum([bins[i] for i in sB])
+    # #     # print sum(bins)
+    #     for i in sB:
+    #         print i-75, bins[i-1], bins[i], bins[i+1]
+    #     for i in bSeq:
+    #         print i-75, bins[i]
+    #     for i in ySeq:
+    #         print i-75, bins[i]
 
     backgroundScore = 0.0
     cLogProb = math.log(2.0)
