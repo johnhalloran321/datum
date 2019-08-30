@@ -578,13 +578,13 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
     ntermOffset = 0
     ctermOffset = 0
 
-    if peptide.seq == 'VAGFVTHLMK':
-        print peptide.seq
-        print peptide.mass
-        print ntm
-        print peptide.seq[:-1]
-        print ctm
-        print peptide.seq[1:]
+    # if peptide.seq == 'VAGFVTHLMK':
+    #     print peptide.seq
+    #     print peptide.mass
+    #     print ntm
+    #     print peptide.seq[:-1]
+    #     print ctm
+    #     print peptide.seq[1:]
 
     p = peptide.seq
     # check n-/c-term amino acids for modifications
@@ -611,9 +611,9 @@ def byIonsTauShift(peptide, charge, lastBin = 1999, tauCard = 75,
                 boffset += mods[aaB]
             if aaY in mods:
                 yoffset += mods[aaY]
-            if peptide.seq == 'VAGFVTHLMK':
-                print (b+boffset)/denom
-                print (y+yoffset)/denom
+            # if peptide.seq == 'VAGFVTHLMK':
+            #     print (b+boffset)/denom
+            #     print (y+yoffset)/denom
             nterm_fragments.append(round_op(b+boffset,denom, tauCard, rMax))
             cterm_fragments.append(round_op(y+yoffset,denom, tauCard, rMax))
             # nterm_fragments.append(min(int(round((b+boffset)/denom)) + tauCard, rMax))
@@ -780,14 +780,14 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     # sY = np.array(sY).astype(int)
 
     # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
-    if peptide.seq == 'VAGFVTHLMK':
-        print peptide.seq
-        print b_offsets
-        print y_offsets
-        print ntm
-        print ctm
-        print bSeq - 75
-        print ySeq - 75
+    # if peptide.seq == 'VAGFVTHLMK':
+    #     print peptide.seq
+    #     print b_offsets
+    #     print y_offsets
+    #     print ntm
+    #     print ctm
+    #     print bSeq - 75
+    #     print ySeq - 75
     #     print sorted(sB)
     # #     # np.set_printoptions(threshold=sys.maxsize)
     # #     # print bins
