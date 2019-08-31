@@ -22,6 +22,7 @@ import math
 import random
 import re
 import csv
+import pyFiles.digest_fasta as df
 
 from pyFiles.dideaEncoding import genVe, genVe_grad, cve0, cve_grad0
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
@@ -77,7 +78,7 @@ def parseInputOptions():
     trainingParamsGroup.add_argument('--num-bins', type = int, action = 'store', 
                                      default = 2000, help = help_num_bins)
     help_bin_width = '<integer> - The bin width of m/z values. Default=1.0.'
-    searchParamsGroup.add_argument('--bin-width', type = float, action = 'store', 
+    trainingParamsGroup.add_argument('--bin-width', type = float, action = 'store', 
                                    default = 1.0, help = help_bin_width)
     help_learning_rate = '<float> - The learning rate to be used during training.'
     trainingParamsGroup.add_argument('--lrate', type = float, action = 'store', 
