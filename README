@@ -1,16 +1,17 @@
-DATUM - DBN Analysis Toolkit to Understand Mass spectra
+DATUM - DBN Analysis Tools to Understand Mass spectra
 ===================================================
 DATUM is a toolkit consisting of several dynamic Bayesian networks (DBNs) 
-and associated software tools to analyze tandem mass (MS/MS) spectra.  The toolkit
-supports effective parameter learning, database search, and post-search feature 
-extraction for Percolator analysis.  Written in Python and ported from the DRIP
-Toolkit (DTK), DATUM adds sveral new modules for Didea, a DBN whose posterior-based
-scoring function may be thought of as a probabilistic analogue to the popular XCorr 
-scoring function found in SEQUEST/Comet/CRUX.  Training and searching with Didea is 
-both faster and more accurate than using DRIP, while also offering training 
-convergence guarantees not possible with DRIP (i.e., Didea learning converges to a 
-global optimum while DRIP learning only converged to a local optima).  If you use
-the Didea features offered by DATUM in your research, please cite:
+and associated software tools to analyze shotgun proteomics data, i.e., 
+tandem mass (MS/MS) spectra.  The toolkit supports effective parameter learning, 
+database search, and post-search feature extraction for Percolator analysis.  
+Written in Python and ported from the DRIP Toolkit (DTK), DATUM adds sveral new 
+modules for Didea, a DBN whose posterior-based scoring function may be thought 
+of as a probabilistic analogue to the popular XCorr scoring function found in 
+SEQUEST/Comet/CRUX.  Training and searching with Didea is both faster and more 
+accurate than using DRIP, while also offering training convergence guarantees 
+not possible with DRIP (i.e., Didea learning converges to a global optimum while 
+DRIP learning only converged to a local optima).  If you use the Didea features 
+offered by DATUM in your research, please cite:
 
 John T. Halloran and David M. Rocke.
 "Learning Concave Conditional Likelihood Models for Improved Analysis of 
