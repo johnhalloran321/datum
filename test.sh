@@ -335,6 +335,74 @@ function clusterTest {
     fi
 }
 
+function dideaSearchHighresVarMods {
+    # digest directory
+    # ./digest.py  \
+    # 	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
+    # 	--min-length 7 \
+    # 	--custom-enzyme '[K]|[X]' \
+    # 	--mods-spec '3M+15.9949,C+57.0214,K+229.16293' \
+    # 	--nterm-peptide-mods-spec 'X+229.16293' \
+    # 	--monoisotopic-precursor true \
+    # 	--recalibrate True \
+    # 	--decoys True
+
+    CH2="charge2-lambdas.txt"
+    CH3="charge3-lambdas.txt"
+
+    python -OO dideaSearch.py \
+	--digest-dir 'digest-output' \
+	--num-threads 1 \
+	--spectra data/malariaTest.ms2 \
+	--learned-lambdas-ch2 $CH2 \
+	--learned-lambdas-ch3 $CH3 \
+	--precursor-window 50 \
+	--precursor-window-type 'ppm' \
+	--output dideaSearch-malariaTestVarmods-output
+	# --high-res-ms2 true \
+	# --precursor-filter 'True' \
+
+}
+
+function dripDideaSearchHighres {
+    # digest directory
+    ./digest.py  \
+    	--fasta data/plasmo_Pfalciparum3D7_NCBI.fasta \
+    	--min-length 7 \
+    	--custom-enzyme '[K]|[X]' \
+    	--mods-spec 'C+57.0214,K+229.16293' \
+    	--nterm-peptide-mods-spec 'X+229.16293' \
+    	--monoisotopic-precursor true \
+    	--recalibrate True \
+    	--peptide-buffer 1000 \
+    	--decoys True
+
+    time python -OO dripSearch.py \
+	--digest-dir 'digest-output' \
+	--precursor-window 50 \
+	--num-threads $NUMTHREADS \
+	--high-res-ms2 true \
+	--precursor-window-type 'ppm' \
+	--precursor-filter 'True' \
+	--spectra data/malariaTest.ms2 \
+	--output dripSearch-smallMalariaTest-output
+
+    CH2="charge2-lambdas.txt"
+    CH3="charge3-lambdas.txt"
+
+    time python -OO dideaSearch.py \
+	--digest-dir 'digest-output' \
+	--precursor-window 50 \
+	--num-threads $NUMTHREADS \
+	--high-res-ms2 true \
+	--precursor-window-type 'ppm' \
+	--spectra data/malariaTest.ms2 \
+	--output dideaSearch-smallMalariaTest-output \
+	--learned-lambdas-ch2 $CH2 \
+	--learned-lambdas-ch3 $CH3 \
+	--num-threads 1
+
+}
 # available examples (see function above for description): 
 # trainTest
 # testBeam
@@ -364,3 +432,6 @@ function clusterTest {
 #####  Didea
 # trainDidea
 testDidea
+
+# dideaSearchHighresVarMods
+# dripDideaSearchHighres
