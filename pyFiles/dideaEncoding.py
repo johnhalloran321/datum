@@ -5,8 +5,9 @@
 # See COPYING or http://opensource.org/licenses/OSL-3.0
 # Command line parsing utilities.
 
-from constants import mass_h, mass_h2o, max_mz
 import math
+from constants import mass_h, mass_h2o, max_mz
+from peptide import Peptide
 
 # Define general emission function
 def genVe(theta, s):
@@ -253,18 +254,36 @@ def by_tauShift(ntm, ctm, charge, b_offsets, y_offsets,
 def round_op_noshift(p_mass, denom):
     return int(p_mass/denom)
 
-def byIons(ntm, ctm, charge, b_offsets, y_offsets, 
-           lastBin = 1999, bin_width = 1.):
+def byIons(pep, charge,
+           mods = {}, ntermMods = {}, ctermMods = {},
+           bin_width = 1.):
     """Given peptide and charge, return b- and y-ions in seperate vectors
 
     """
+    (ntm, ctm) = pep.ideal_fragment_masses('monoisotopic')
     nterm_fragments = []
     cterm_fragments = []
+    ntermOffset = 0
+    ctermOffset = 0
+
+    p = pep.seq
+    # check n-/c-term amino acids for modifications
+    if p[0] in ntermMods:
+        ntermOffset = ntermMods[p[0]]
+    if p[-1] in ctermMods:
+        ctermOffset = ctermMods[p[-1]]
+
     # iterate through possible charges
     for c in range(1,charge):
         cf = float(c)
         denom = cf * float(bin_width)
-        for b, y, boffset, yoffset in zip(ntm[1:-1], ctm[1:-1], b_offsets, y_offsets):
-            nterm_fragments.append(round_op_noshift(b+boffset+cf*mass_h,denom))
-            cterm_fragments.append(round_op_noshift(y+yoffset+cf*mass_h,denom))
+        boffset = ntermOffset + cf*mass_h
+        yoffset = ctermOffset + mass_h2o + cf*mass_h
+        for b, y, aaB, aaY in zip(ntm[1:-1], reversed(ctm[1:-1]), p[:-1], reversed(p[1:])):
+            if aaB in mods:
+                boffset += mods[aaB]
+            if aaY in mods:
+                yoffset += mods[aaY]
+            nterm_fragments.append(round_op_noshift(b+boffset,denom))
+            cterm_fragments.append(round_op_noshift(y+yoffset,denom))
     return (nterm_fragments,cterm_fragments)

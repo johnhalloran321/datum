@@ -8,7 +8,7 @@
 
 from __future__ import with_statement
 
-__authors__ = ['John Halloran <halloj3@uw.edu>' ]
+__authors__ = ['John Halloran <jthalloran@ucdavis.edu>' ]
 
 import os
 import sys
@@ -31,7 +31,10 @@ from pyFiles.normalize import pipeline
 from pyFiles.constants import allPeps, mass_h, mass_h2o
 from digest import (check_arg_trueFalse,
                     parse_var_mods, load_digested_peptides_var_mods)
-from pyFiles.dideaEncoding import histogram_spectra, simple_uniform_binwidth, bins_to_vecpt_ratios
+from pyFiles.dideaEncoding import (histogram_spectra, 
+                                   simple_uniform_binwidth, 
+                                   byIons)
+# bins_to_vecpt_ratios
 
 from pyFiles.constants import allPeps
 from pyFiles.shard_spectra import (load_spectra,
@@ -146,26 +149,29 @@ def find_sid(array, sid):
             return ind
     return -1
 
-def byIons(peptide, charge):
-    """Given peptide and charge, return b- and y-ions in seperate vectors
+# def byIons(peptide, charge):
+#     """Given peptide and charge, return b- and y-ions in seperate vectors
 
-    """
-    mass_op = lambda m: int(math.floor(m))
-    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
-    nterm_fragments = []
-    cterm_fragments = []
-    # iterate through possible charges
-    for c in range(1,charge):
-        nterm_fragments += [int(round((b+c)/c)) for b in ntm[1:-1]]
-        cterm_fragments += [int(round((y+18+c)/c)) for y in ctm[1:-1]]
-    return (nterm_fragments,cterm_fragments)
+#     """
+#     mass_op = lambda m: int(math.floor(m))
+#     (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
+#     nterm_fragments = []
+#     cterm_fragments = []
+#     # iterate through possible charges
+#     for c in range(1,charge):
+#         nterm_fragments += [int(round((b+c)/c)) for b in ntm[1:-1]]
+#         cterm_fragments += [int(round((y+18+c)/c)) for y in ctm[1:-1]]
+#     return (nterm_fragments,cterm_fragments)
 
-def dideaShiftDotProducts(peptide, charge, bins, num_bins):
+def dideaShiftDotProducts(peptide, charge, bins, num_bins, 
+                          mods, ntermMods, ctermMods, bin_width = 1.):
     """ For observed spectrum s and peptide x with corresponding b- and y-ion vectors b and y, calculate (b'+y')^T(s_\tau - s),
     where s_\tau is s shifted by \tau units, and b'/y' are boolean vectors of length len(s) with ones only in indices corresponding to 
     b and y-ions
     """
-    (bions, yions) = byIons(peptide,charge)
+    (bions, yions) = byIons(peptide,charge,
+                            mods, ntermMods, ctermMods, 
+                            bin_width)
     tauCard = 75.0
     lastBin = num_bins-1
     # output - vector corresponding to above dot-product per every shift
@@ -254,12 +260,15 @@ def dideaShiftSepDotProducts(peptide, charge, bins, num_bins):
         shiftSepDotProducts[ind][1] = ySum
     return shiftSepDotProducts
 
-def dideaShiftAllIons(peptide, charge, bins, num_bins):
+def dideaShiftAllIons(peptide, charge, bins, num_bins,
+                      mods, ntermMods, ctermMods, bin_width = 1.):
     """ For observed spectrum s and peptide x with corresponding b- and y-ion vectors b and y, calculate (b'+y')^T(s_\tau - s),
     where s_\tau is s shifted by \tau units, and b'/y' are boolean vectors of length len(s) with ones only in indices corresponding to 
     b and y-ions
     """
-    (bions, yions) = byIons(peptide,charge)
+    (bions, yions) = byIons(peptide,charge,
+                            mods, ntermMods, ctermMods, 
+                            bin_width)
     tauCard = 75.0
     lastBin = num_bins-1
     # output - vector corresponding to above dot-product per every shift
@@ -340,12 +349,10 @@ def genDideaTrainingData(options):
         if (ind  != -1):
             p = Peptide(targets[ind][1])
             if options.cve:
-                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
+                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins), mods, ntermMods, ctermMods, options.bin_width)):
                     output[spec_ind, tau] = tauProd
             else:
-                # output[spec_ind] = np.array([peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins))])
-                # output[spec_ind] = [peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins))]
-                a = [peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins))]
+                a = [peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins), mods, ntermMods, ctermMods, options.bin_width)]
                 # pad uneven peak lists
                 max_len = np.array([len(array) for array in a]).max()
                 default_value = 0
@@ -353,16 +360,6 @@ def genDideaTrainingData(options):
                 # element-wise multiplication with the theta vector, i.e., so that the data matrix
                 # has |\tau| columns
                 output[spec_ind] = np.transpose([np.pad(array, (0, max_len - len(array)), mode='constant', constant_values=default_value) for array in a])
-                # if len(output[spec_ind].shape) == 1:
-                #     print p
-                # else:
-                #     print spec_ind, output[spec_ind].shape
-                
-                # for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins))):
-                    # output[spec_ind, tau] = peaks
-            # else:
-            #     for tau, tauProd in zip(range(-37,38),dideaShiftSepDotProducts(p, vc, bins, len(bins))):
-            #         output[spec_ind, tau] = tauProd
 
     # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
     return (len(spectra),output, sidsPer)
@@ -371,6 +368,18 @@ def genDideaTrainingData_par(options, numThreads):
     """Create didea log-sum-exp training data"""
     tbl = 'monoisotopic'
     preprocess = pipeline(options.normalize)
+
+    # parse modifications
+    mods = df.parse_mods(args.mods_spec, True)
+    print "mods:"
+    print mods
+    ntermMods = df.parse_mods(args.nterm_peptide_mods_spec, False)
+    print "n-term mods:"
+    print ntermMods
+    ctermMods = df.parse_mods(args.cterm_peptide_mods_spec, False)
+    print "c-term mods:"
+    print ctermMods
+
     # Generate the histogram bin ranges
     ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = options.bin_width)
 
@@ -412,10 +421,10 @@ def genDideaTrainingData_par(options, numThreads):
         if (ind  != -1):
             p = Peptide(targets[ind][1])
             if options.cve:
-                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
+                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins), mods, ntermMods, ctermMods, options.bin_width)):
                     output[output_ind][sidsPer[output_ind], tau] = tauProd
             else:
-                for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins))):
+                for tau, peaks in zip(range(-37,38),dideaShiftAllIons(p, vc, bins, len(bins), mods, ntermMods, ctermMods, options.bin_width)):
                     output[output_ind][sidsPer[output_ind], tau] = peaks
     # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
     return (len(spectra),output, sidsPer)
@@ -460,11 +469,6 @@ def cve_general_ll(lambdas, options, numData, data):
     const = options.alpha/2.0 # * float(numData))
     totalLogProbEv = 0.0
     grad = np.array([0.0 for _ in range(-37,38)])
-    # grad = {}
-    # numer = {}
-    # for tau in range(-37,38):
-    #     grad[tau] = 0.0
-        # numer[tau] = 0.0
 
     for i in range(numData):
         # print "sid=%d" % sids[i]
@@ -482,35 +486,10 @@ def cve_general_ll(lambdas, options, numData, data):
         numer = likelihoods * g
         totalLogProbEv += math.log(probEv)
         grad += (const * lambdas + numer / denom) / float(numData)
-        # for ind,tau in enumerate(range(-37,38)):
-        #     if numer[ind] == 0.0:
-        #         if options.l2Reg:
-        #             grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
-        #         continue
-        #     if numer[ind] < 0.0:
-        #         grad[ind] -= math.exp(math.log(-numer[ind])-math.log(probEv)) / float(numData)
-        #     else:
-        #         grad[ind] += math.exp(math.log(numer[ind])-math.log(probEv)) / float(numData)
-        #     if options.l2Reg:
-        #         grad[ind] += (options.alpha/2.0 * lambdas[ind]) / float(numData)
-        # exit(-1)
+
     return grad, totalLogProbEv
 
 def batchFuncEvalLambdas_mp(lambdas, options, numData, data, partitions, numThreads):
-    # # calculate indices to be evaluated in partition
-    # dataPoints = range(numData)
-    # random.shuffle(dataPoints)
-    # # calculate num spectra to score per thread
-    # inc = int(numData / numThreads)
-    # partitions = []
-    # l = 0
-    # r = inc
-    # for i in range(numThreads-1):
-    #     partitions.append(dataPoints[l:r])
-    #     l += inc
-    #     r += inc
-    # partitions.append(dataPoints[l:])
-
     pool = mp.Pool(processes = numThreads)
     # perform map: distribute jobs to CPUs
 
@@ -520,10 +499,6 @@ def batchFuncEvalLambdas_mp(lambdas, options, numData, data, partitions, numThre
                                args=(lambdas, partitions[i], 
                                      data, numData, options.alpha, options.l2Reg))
         results.append(res)
-
-    # results = [pool.apply_async(funcEvalLambdas,
-    #                             args=(lambdas, partitions[i], 
-    #                                   data, numData, options.alpha, options.l2Reg)) for i in range(numThreads)]
 
     pool.close()
     pool.join() # wait for jobs to finish before continuing
@@ -550,9 +525,6 @@ def batchFuncEvalLambdas_mpB(lambdas, options, numData, data, numThreads, numSam
         res = pool.apply_async(funcEvalLambdasB,
                                args=(lambdas, data[i], numSamples[i], numData, options.alpha, options.l2Reg))
         results.append(res)
-
-    # results = [pool.apply_async(funcEvalLambdasB,
-    #                             args=(lambdas, data[i], numSamples[i], numData, options.alpha, options.l2Reg)) for i in range(numThreads)]
 
     pool.close()
     pool.join() # wait for jobs to finish before continuing
@@ -714,14 +686,6 @@ def batchGradientAscentShiftPrior(options):
         else:
             lambdas -= lrate * grad
             l2 = math.sqrt(np.sum([grad * grad]))
-        # for ind, tau in enumerate(range(-37,38)):
-        #     if not options.cve:
-        #         lambdas[tau] -= lrate * grad[tau]
-        #         l2 += grad[tau] * grad[tau]
-        #     else:
-        #         lambdas[ind] -= lrate * grad[ind]
-        #         l2 += grad[ind] * grad[ind]
-        # l2 = math.sqrt(l2)
         print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
         iters += 1
 
