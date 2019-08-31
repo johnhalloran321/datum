@@ -23,6 +23,7 @@ import random
 import re
 import csv
 
+from pyFiles.dideaEncoding import genVe, genVe_grad, cve0, cve_grad0
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide
 from pyFiles.normalize import pipeline
@@ -51,7 +52,7 @@ stde = sys.stdout
 
 def parseInputOptions():
     parser = argparse.ArgumentParser(conflict_handler='resolve', 
-                                     description="Run a DRIP database search given an MS2 file and the results of a FASTA file processed using dripDigest.")
+                                     description="Given collection of high-quality PSMs and spectra, train Didea.")
     ############## input and output options
     ##### inputs
     iFileGroup = parser.add_argument_group('iFileGroup', 'Necessary input files.')
@@ -73,8 +74,11 @@ def parseInputOptions():
     trainingParamsGroup.add_argument('--num-threads', type = int, action = 'store', 
                                      default = 1, help = help_num_threads)
     help_num_bins = '<integer> - The number of bins to quantize observed spectrum. Default=2000.'
-    trainingParamsGroup.add_argument('--num_bins', type = int, action = 'store', 
+    trainingParamsGroup.add_argument('--num-bins', type = int, action = 'store', 
                                      default = 2000, help = help_num_bins)
+    help_bin_width = '<integer> - The bin width of m/z values. Default=1.0.'
+    searchParamsGroup.add_argument('--bin-width', type = float, action = 'store', 
+                                   default = 1.0, help = help_bin_width)
     help_learning_rate = '<float> - The learning rate to be used during training.'
     trainingParamsGroup.add_argument('--lrate', type = float, action = 'store', 
                                      default = 0.01, help = help_learning_rate)
@@ -90,9 +94,9 @@ def parseInputOptions():
     help_l2Reg = '<T|F> - L2-regularize training objective function'
     trainingParamsGroup.add_argument('--l2Reg', type = str, action = 'store', 
                                      default = 'true', help = help_l2Reg)
-    help_cve = '<T|F> - Use general CVE emission'
+    help_cve = '<T|F> - Use convex virtual emission function for extensively (speed) optimized inference.'
     trainingParamsGroup.add_argument('--cve', type = str, action = 'store', 
-                                     default = 'false', help = help_cve)
+                                     default = 'true', help = help_cve)
     help_alpha = '<float> - L2-regularization strength.'
     trainingParamsGroup.add_argument('--alpha', type = float, action = 'store', 
                                      default = 0.4, help = help_alpha)
@@ -106,6 +110,14 @@ def parseInputOptions():
     parser.add_argument('--vekind', dest = "vekind", type = str,
                         help = "Emission function to use.", 
                         default = 'intensity')
+    ############## amino acid modifications
+    aaModsGroup = parser.add_argument_group('aaModsGroup', 'Options for amino acid modifications.')
+    aaModsGroup.add_argument('--mods-spec', type = str, action = 'store',
+                             default = 'C+57.02146')
+    aaModsGroup.add_argument('--cterm-peptide-mods-spec', type = str, action = 'store',
+                             default = '')
+    aaModsGroup.add_argument('--nterm-peptide-mods-spec', type = str, action = 'store',
+                             default = '')
     return parser.parse_args()
 
 def process_args(args):
@@ -165,7 +177,7 @@ def dideaShiftDotProducts(peptide, charge, bins, num_bins):
             yt = y-tau
             # start with b-ions
             if bt < num_bins: # make sure we haven't shifted outside of the bins
-                if bt >= 0: # make sure we haven't shifted to far left
+                if bt >= 0: # make sure we haven't shifted too far left
                     if b < num_bins: # make sure original b-ion was in range
                         bySum += bins[bt]-bins[b]
                     else: # original b-ion was out of range
@@ -275,8 +287,20 @@ def genDideaTrainingData(options):
     output = {}
     tbl = 'monoisotopic'
     preprocess = pipeline(options.normalize)
+
+    # parse modifications
+    mods = df.parse_mods(args.mods_spec, True)
+    print "mods:"
+    print mods
+    ntermMods = df.parse_mods(args.nterm_peptide_mods_spec, False)
+    print "n-term mods:"
+    print ntermMods
+    ctermMods = df.parse_mods(args.cterm_peptide_mods_spec, False)
+    print "c-term mods:"
+    print ctermMods
+
     # Generate the histogram bin ranges
-    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = 1.0)
+    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = options.bin_width)
 
     vc = int(options.charge)
     validcharges = set([vc])
@@ -314,7 +338,7 @@ def genDideaTrainingData(options):
         sidsPer.append(sid)
         if (ind  != -1):
             p = Peptide(targets[ind][1])
-            if not options.cve:
+            if options.cve:
                 for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
                     output[spec_ind, tau] = tauProd
             else:
@@ -347,7 +371,7 @@ def genDideaTrainingData_par(options, numThreads):
     tbl = 'monoisotopic'
     preprocess = pipeline(options.normalize)
     # Generate the histogram bin ranges
-    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = 1.0)
+    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = options.bin_width)
 
     vc = int(options.charge)
     validcharges = set([vc])
@@ -386,7 +410,7 @@ def genDideaTrainingData_par(options, numThreads):
         sidsPer[output_ind] += 1
         if (ind  != -1):
             p = Peptide(targets[ind][1])
-            if not options.cve:
+            if options.cve:
                 for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins))):
                     output[output_ind][sidsPer[output_ind], tau] = tauProd
             else:
@@ -394,14 +418,6 @@ def genDideaTrainingData_par(options, numThreads):
                     output[output_ind][sidsPer[output_ind], tau] = peaks
     # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
     return (len(spectra),output, sidsPer)
-
-def cve0(theta, s):
-    # from NeurIPS 2018 paper:
-    return math.exp(theta * s)
-
-def cve_grad0(theta, s):
-    # from NeurIPS 2018 paper:
-    return s * math.exp(theta * s)
 
 def batchFuncEvalLambdas(lambdas, options, numData, data):
     logSumExp = 0.0
@@ -436,17 +452,6 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
         # exit(-1)
     return grad, logSumExp
 
-def cve(theta, s):
-    # try quadratic
-    return 0.5 * (theta * s) ** 2 + 1.0
-    # return math.exp(sum([math.log(0.5 * (theta * si) ** 2 + 1.0) for si in s]))
-
-def cve_grad(theta, s):
-    # from NeurIPS 2018 paper:
-    # return s * math.exp(theta * s)
-    # try quadratic
-    return theta * s * s
-
 def cve_general_ll(lambdas, options, numData, data):
     # calculate log-likelihood over the training data
     # data is serialized as: data[sid,\tau] = list of peak intensities
@@ -464,8 +469,8 @@ def cve_general_ll(lambdas, options, numData, data):
         # print "sid=%d" % sids[i]
         denom = 0.0
         probEv = 0.0
-        probs = cve(lambdas, data[i]) # matrix
-        derivs = cve_grad(lambdas, data[i]) # matrix
+        probs = genVe(lambdas, data[i]) # matrix
+        derivs = genVe_grad(lambdas, data[i]) # matrix
         # since we transposed the data matrix to begin with, sum
         # along the columns of the above matrices
         likelihoods = np.exp(np.sum(np.log(probs), axis=0)) # column-wise sum
@@ -637,7 +642,7 @@ def batchGradientAscentShiftPrior(options):
     lrate = options.lrate # learning rate
     iters = 0
 
-    if not options.cve:
+    if options.cve:
         print "Optimized training for CVE0"
     parallel_partitions = []
     if options.num_threads > 1:
@@ -655,16 +660,16 @@ def batchGradientAscentShiftPrior(options):
 
     # initialize parameters
     lambdas = {}
-    if not options.cve:
+    if options.cve:
         for tau in range(-37,38):
             lambdas[tau] = 0.0
     else:
         lambdas = np.array([1.0 for _ in range(-37,38)])
 
     # take first step
-    if not options.cve:
-        # optimized: this is actually a CVE, but the structure of this CVE
-        # is exploited to significantly optimize learning
+    if options.cve:
+        # optimized: this is a convex virtual emission function, the structure of which
+        # is exploited to significantly optimize computation during learning
         if options.num_threads > 1:
             grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data, parallel_partitions, numThreads)
         else:
@@ -673,7 +678,7 @@ def batchGradientAscentShiftPrior(options):
         grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
     optEval = -logSumExp
     l2 = 0.0
-    if not options.cve:
+    if options.cve:
         for ind,tau in enumerate(range(-37,38)):
             lambdas[tau] -= lrate * grad[tau]
             l2 += grad[tau] * grad[tau]
@@ -682,21 +687,13 @@ def batchGradientAscentShiftPrior(options):
         lambdas -= lrate * grad
         l2 = math.sqrt(np.sum([grad * grad]))
 
-    # for ind,tau in enumerate(range(-37,38)):
-    #     if not options.cve:
-    #         lambdas[tau] -= lrate * grad[tau]
-    #         l2 += grad[tau] * grad[tau]
-    #     else:
-    #         lambdas[ind] -= lrate * grad[ind]
-    #         l2 += grad[ind] * grad[ind]
-    # l2 = math.sqrt(l2)
     iters += 1
     print "iter %d: f(lmb*)/N = %f, norm(grad) = %f" % (iters, optEval, l2)
 
     while(l2 > thresh):
         if iters > options.maxIters:
             break
-        if not options.cve:
+        if options.cve:
             # optimized: this is actually a CVE, but the structure of this CVE
             # is exploited to significantly optimize learning
             if options.num_threads > 1:
@@ -708,7 +705,7 @@ def batchGradientAscentShiftPrior(options):
             grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
         optEval = -logSumExp
         l2 = 0.0
-        if not options.cve:
+        if options.cve:
             for ind,tau in enumerate(range(-37,38)):
                 lambdas[tau] -= lrate * grad[tau]
                 l2 += grad[tau] * grad[tau]
@@ -730,14 +727,14 @@ def batchGradientAscentShiftPrior(options):
         optEval = -logSumExp
         # write output matrix
     fid = open(options.output, "w")
-    if not options.cve:
-        # lambdas[0] = options.lmb0Prior
-        lambdas[0] = np.mean([lambdas[tau] for tau in range(-37,38)])
+    if options.cve:
+        lambdas[0] = options.lmb0Prior
+        # lambdas[0] = np.mean([lambdas[tau] for tau in range(-37,38)])
     else:
-        # lambdas[37] = options.lmb0Prior
-        lambdas[37] = np.mean(lambdas)
+        lambdas[37] = options.lmb0Prior
+        # lambdas[37] = np.mean(lambdas)
     for ind, tau in enumerate(range(-37,38)):
-        if not options.cve:
+        if options.cve:
             fid.write("%e\n" % lambdas[tau])
         else:
             fid.write("%e\n" % lambdas[ind])

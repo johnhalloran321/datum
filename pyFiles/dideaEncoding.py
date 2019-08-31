@@ -8,6 +8,26 @@
 from constants import mass_h, mass_h2o, max_mz
 import math
 
+# Define general emission function
+def genVe(theta, s):
+    # quadratic
+    return 0.5 * (theta * s) ** 2 + 1.0
+
+def genVe_grad(theta, s):
+    # gradient of quadratic
+    return theta * s * s
+
+# Convex virtual emission function, from the NeurIPS 2018 paper:
+# Halloran, John T., and David M. Rocke. "Learning concave conditional likelihood models for improved analysis of tandem mass spectra." Advances in Neural Information Processing Systems. 2018.
+
+def cve0(theta, s):
+    # from NeurIPS 2018 paper:
+    return math.exp(theta * s)
+
+def cve_grad0(theta, s):
+    # from NeurIPS 2018 paper:
+    return s * math.exp(theta * s)
+
 def simple_uniform_binwidth(min_mass, num_bins, bin_width = 1.0005079, offset = 0.0):
     tick_points = [ ]
     last = min_mass + offset
@@ -109,6 +129,7 @@ def bins_to_vecpt_ratios(bins, kind = 'expbased', lmb = 0.5):
 # theoretical spectrum functions
 def round_op(p_mass, denom, tauCard, rMax):
     return min(int(math.floor(p_mass/denom)) + tauCard, rMax)
+    # return min(int(round(p_mass/denom)) + tauCard, rMax)
 
 def peptide_mod_offset_screen(p, mods = {}, ntermMods = {}, ctermMods = {}):
     """ Given (static) mods, calculate what the offsets should occur for the b-/y-ions
@@ -227,4 +248,23 @@ def by_tauShift(ntm, ctm, charge, b_offsets, y_offsets,
         for b, y, boffset, yoffset in zip(ntm[1:-1], ctm[1:-1], b_offsets, y_offsets):
             nterm_fragments.append(round_op(b+boffset+cf*mass_h,denom, tauCard, rMax))
             cterm_fragments.append(round_op(y+yoffset+cf*mass_h,denom, tauCard, rMax))
+    return (nterm_fragments,cterm_fragments)
+
+def round_op_noshift(p_mass, denom):
+    return int(p_mass/denom)
+
+def byIons(ntm, ctm, charge, b_offsets, y_offsets, 
+           lastBin = 1999, bin_width = 1.):
+    """Given peptide and charge, return b- and y-ions in seperate vectors
+
+    """
+    nterm_fragments = []
+    cterm_fragments = []
+    # iterate through possible charges
+    for c in range(1,charge):
+        cf = float(c)
+        denom = cf * float(bin_width)
+        for b, y, boffset, yoffset in zip(ntm[1:-1], ctm[1:-1], b_offsets, y_offsets):
+            nterm_fragments.append(round_op_noshift(b+boffset+cf*mass_h,denom))
+            cterm_fragments.append(round_op_noshift(y+yoffset+cf*mass_h,denom))
     return (nterm_fragments,cterm_fragments)

@@ -22,18 +22,18 @@ import math
 import random
 import re
 
+# General emission function, need not be normalized
+from pyFiles.dideaEncoding import genVe
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide #, amino_acids_to_indices
 from pyFiles.normalize import pipeline
 from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz
-from dideaTrain import cve
 from digest import (check_arg_trueFalse,
                         parse_var_mods, load_digested_peptides_var_mods)
 from pyFiles.dideaEncoding import (histogram_spectra, simple_uniform_binwidth,
                                    round_op, 
                                    peptide_mod_offset_screen, peptide_var_mod_offset_screen,
                                    by_sepTauShift, by_tauShift)
-# , bins_to_vecpt_ratios
 
 from pyFiles.shard_spectra import (load_spectra,
                                    load_spectra_ret_dict,
@@ -115,22 +115,22 @@ class dideaPSM(object):
         """Number of amino acids in the peptide. Read-only computed property."""
         return len(self.peptide)
 
-    def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, cve,
+    def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, useCve = True,
                       mods = {}, ntermMods = {}, ctermMods = {},
                       varMods = {}, varNtermMods = {}, varCtermMods = {}, varModSequence = [], 
                       bin_width = 1.):
-        if not cve:
+        if useCve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
                                                                                         self.charge,bins,num_bins, lambdas2, lambdas3, 
                                                                                         mods, ntermMods, ctermMods, 
                                                                                         varMods, varNtermMods, varCtermMods,
                                                                                         varModSequence, bin_width)
         else:
-            (foregroundScore,backgroundScore) = genCveBinBuffer(Peptide(self.peptide),
-                                                                self.charge,bins,num_bins, lambdas2, lambdas3, 
-                                                                mods, ntermMods, ctermMods, 
-                                                                varMods, varNtermMods, varCtermMods,
-                                                                varModSequence, bin_width)
+            (foregroundScore,backgroundScore) = genVeBinBuffer(Peptide(self.peptide),
+                                                               self.charge,bins,num_bins, lambdas2, lambdas3, 
+                                                               mods, ntermMods, ctermMods, 
+                                                               varMods, varNtermMods, varCtermMods,
+                                                               varModSequence, bin_width)
         self.score = foregroundScore - backgroundScore
         self.foreground_score = foregroundScore
         self.background_score = backgroundScore
@@ -206,9 +206,9 @@ def parseInputOptions():
     help_precursor_window_type = """<Da|ppm> - Specify the units for the window that is used to select peptides around the precursor mass location, either in Daltons (Da) or parts-per-million (ppm). Default=Da."""
     searchParamsGroup.add_argument('--precursor-window-type', type = str, action = 'store', default = 'Da', help = help_precursor_window_type)
     help_scan_id_list = """<string> - A file containing a list of scan IDs to search.  Default = <empty>."""
-    help_cve = '<T|F> - Use general CVE emission'
+    help_cve = '<T|F> - Use convex virtual emission function for extensively (speed) optimized inference.'
     searchParamsGroup.add_argument('--cve', type = str, action = 'store', 
-                                   default = 'false', help = help_cve)
+                                   default = 'true', help = help_cve)
     searchParamsGroup.add_argument('--scan-id-list', type = str, action = 'store', default = '', help = help_scan_id_list)
     help_charges = """<comma-separated-integers|all> - precursor charges to search. To specify individual charges, list as comma-separated, e.g., 1,2,3 to search all charge 1, 2, or 3 spectra. Default=All."""
     searchParamsGroup.add_argument('--charges', type = str, action = 'store', default = 'All', help = help_charges)
@@ -468,8 +468,6 @@ def byIonSepTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
             c_yoffset = mass_h2o + cf*mass_h + yoffset
             bs.append(round_op(b+c_boffset, denom, tauCard, rMax))
             ys.append(round_op(y+c_yoffset, denom, tauCard, rMax))
-            # bs.append(min(int(round((b+c_boffset)/denom)) + tauCard, rMax))
-            # ys.append(min(int(round((y+c_yoffset)/denom)) + tauCard, rMax))
         bSeq.append(bs)
         ySeq.append(ys)
     return bSeq, ySeq
@@ -751,33 +749,18 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     else:
         b_offsets, y_offsets = peptide_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods)
 
-    bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, b_offsets, y_offsets, 
-                                lastBin, tauCard, bin_width)
     sB, sY = by_tauShift(ntm, ctm, 2, b_offsets, y_offsets, 
                          lastBin, tauCard, bin_width)
-    # if varMods or ntermVarMods or ctermVarMods:
-    #     bSeq, ySeq = by_sepTauShift_var_mods(peptide,3, lastBin, tauCard, 
-    #                                          mods, ntermMods, ctermMods, 
-    #                                          varMods, ntermVarMods, ctermVarMods,
-    #                                            varModSequence, bin_width)
-    #     sB, sY = by_tauShift_var_mods(peptide,2, lastBin, tauCard,
-    #                                   mods, ntermMods, ctermMods, 
-    #                                   varMods, ntermVarMods, ctermVarMods,
-    #                                   varModSequence, bin_width)
-    # else:    
-    #     # bSeq, ySeq = byIonSepTauShift_flat(peptide,3, lastBin, tauCard,
-    #     #                                    mods, ntermMods, ctermMods)
-    #     bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, lastBin, tauCard,
-    #                                 b_offsets, y_offsets bin_width)
-    #     sB, sY = by_tauShift(peptide,2, lastBin, tauCard,
-    #                          mods, ntermMods, ctermMods, bin_width)
+    # vectors containing sets of charged ions among a b- and y-ion pair, 
+    # necessary when marginalizing over charge in the Diea model
+    bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, b_offsets, y_offsets, 
+                                lastBin, tauCard, bin_width)
 
     sB += sY # collapse b- and y- charge2 vectors together
 
     bSeq = np.array(bSeq).astype(int)
     ySeq = np.array(ySeq).astype(int)
     sB = np.array(sB).astype(int)
-    # sY = np.array(sY).astype(int)
 
     # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
     # if peptide.seq == 'VAGFVTHLMK':
@@ -803,8 +786,8 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
 
     backgroundScore = 0.0
     cLogProb = math.log(2.0)
-    # first calculate foreground score
 
+    # first calculate foreground score
     l = learnedLambdas2[0]
     foregroundScore = math.exp(l * np.sum(bins[sB]))
     a = foregroundScore
@@ -826,7 +809,7 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     for tau in range(-37,0):
         l = learnedLambdas3[tau]
         l2 = learnedLambdas3[-tau]
-
+        # marginalize over charge variable
         h = np.exp(l * (bins[bSeq+tau] + bins[ySeq+tau]) - cLogProb)
         h2 = np.exp(l2 * (bins[bSeq-tau] + bins[ySeq-tau]) - cLogProb)
         currScore = math.exp(np.sum(np.log(np.sum(h, axis=1))))
@@ -903,36 +886,33 @@ def dideaMultiChargeBinBufferLearnedLambdas_og(peptide, charge, bins, num_bins, 
 
     return (foregroundScore,backgroundScore)
 
-def logCve(theta, s):
+def logGenVe(theta, s):
     # log of the CVE defined in dideaTrain
-    return np.log(cve(theta,s))
+    return np.log(genVe(theta,s))
 
-def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
-                    mods = {}, ntermMods = {}, ctermMods = {},
-                    varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
-                    bin_width = 1.):
+def genVeBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                   mods = {}, ntermMods = {}, ctermMods = {},
+                   varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
+                   bin_width = 1.):
     """ For a generally defined (virtual evidence) emission function,
     calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
     lastBin = num_bins-1
     tauCard = 75
+    (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic')
     if varMods or ntermVarMods or ctermVarMods:
-        bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard, 
-                                               mods, ntermMods, ctermMods, 
-                                               varMods, ntermVarMods, ctermVarMods,
-                                               varModSequence, bin_width)
-        sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard,
-                                         mods, ntermMods, ctermMods, 
-                                         varMods, ntermVarMods, ctermVarMods,
-                                         varModSequence, bin_width)
-        # bSeq, ySeq = byIonSepTauShift_var_mods(peptide,3, lastBin, tauCard)
-        # sB, sY = byIonsTauShift_var_mods(peptide,2, lastBin, tauCard)
-    else:    
-        bSeq, ySeq = byIonSepTauShift(peptide,3, lastBin, tauCard,
-                                      mods, ntermMods, ctermMods, bin_width)
-        sB, sY = byIonsTauShift(peptide,2, lastBin, tauCard,
-                                mods, ntermMods, ctermMods, bin_width)
+        b_offsets, y_offsets = peptide_var_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods, 
+                                                             varMods, ntermVarMods, ctermVarMods,varModSequence)
+    else:
+        b_offsets, y_offsets = peptide_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods)
+
+    sB, sY = by_tauShift(ntm, ctm, 2, b_offsets, y_offsets, 
+                         lastBin, tauCard, bin_width)
+    # vectors containing sets of charged ions among a b- and y-ion pair, 
+    # necessary when marginalizing over charge in the Diea model
+    bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, b_offsets, y_offsets, 
+                                lastBin, tauCard, bin_width)
 
     # enable fancy indexing for the various lists of b-y ions
     bSeq = np.array(bSeq).astype(int)
@@ -946,10 +926,10 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
     cLogProb = math.log(2.0)
 
     l = learnedLambdas2[0]
-    foregroundScore = math.exp(np.sum(logCve(l,bins[sB]) + logCve(l,bins[sY])))
+    foregroundScore = math.exp(np.sum(logGenVe(l,bins[sB]) + logGenVe(l,bins[sY])))
 
     l = learnedLambdas3[0]
-    h = np.exp(logCve(l,bins[bSeq]) + logCve(l,bins[ySeq]) - cLogProb)
+    h = np.exp(logGenVe(l,bins[bSeq]) + logGenVe(l,bins[ySeq]) - cLogProb)
     foregroundScore += math.exp(np.sum(np.log(np.sum(h, axis=1))))
 
     backgroundScore += foregroundScore
@@ -959,15 +939,15 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
     for tau in range(-37,0):
         l = learnedLambdas2[tau]
         l2 = learnedLambdas2[-tau]
-        h = np.exp(np.sum(logCve(l,bins[sB+tau]) + logCve(l,bins[sY+tau])))
-        h2 = np.exp(np.sum(logCve(l2,bins[sB-tau]) + logCve(l2,bins[sY-tau])))
+        h = np.exp(np.sum(logGenVe(l,bins[sB+tau]) + logGenVe(l,bins[sY+tau])))
+        h2 = np.exp(np.sum(logGenVe(l2,bins[sB-tau]) + logGenVe(l2,bins[sY-tau])))
         backgroundScore += h + h2
 
         l = learnedLambdas3[tau]
         l2 = learnedLambdas3[-tau]
 
-        h = np.exp(logCve(l,bins[bSeq+tau]) + logCve(l,bins[ySeq+tau]) - cLogProb)
-        h2 = np.exp(logCve(l2,bins[bSeq-tau]) + logCve(l2,bins[ySeq-tau]) - cLogProb)
+        h = np.exp(logGenVe(l,bins[bSeq+tau]) + logGenVe(l,bins[ySeq+tau]) - cLogProb)
+        h2 = np.exp(logGenVe(l2,bins[bSeq-tau]) + logGenVe(l2,bins[ySeq-tau]) - cLogProb)
         currScore = math.exp(np.sum(np.log(np.sum(h, axis=1))))
         currScore2 = math.exp(np.sum(np.log(np.sum(h2, axis=1))))
 
@@ -977,9 +957,9 @@ def genCveBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLam
 
     return (foregroundScore,backgroundScore)
 
-def genCveBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
-                        mods = {}, ntermMods = {}, ctermMods = {},
-                        varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+def genVeBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                       mods = {}, ntermMods = {}, ctermMods = {},
+                       varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
@@ -1014,15 +994,15 @@ def genCveBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learne
     cLogProb = math.log(2.0)
 
     l = learnedLambdas2[0]
-    foregroundScore = np.exp(np.sum(logCve(l,bins[sB]) + logCve(l,bins[sY])))
+    foregroundScore = np.exp(np.sum(logGenVe(l,bins[sB]) + logGenVe(l,bins[sY])))
     currScore = 0.0
     l = learnedLambdas3[0]
-    h = np.exp(logCve(l,bins[bSeq]) + logCve(l,bins[ySeq]) - cLogProb)
+    h = np.exp(logGenVe(l,bins[bSeq]) + logGenVe(l,bins[ySeq]) - cLogProb)
     currScore = np.sum(np.log(np.sum(h, axis=0)))
     # for by in byPairs:
     #     h = 0.0
     #     for b, y in by:
-    #         h += math.exp(logCve(l,bins[b]) + logCve(l,bins[y]) - cLogProb)
+    #         h += math.exp(logGenVe(l,bins[b]) + logGenVe(l,bins[y]) - cLogProb)
     #     currScore += math.log(h)
     foregroundScore += math.exp(currScore)
 
@@ -1033,13 +1013,13 @@ def genCveBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learne
     for tau in range(-37,0):
         l = learnedLambdas2[tau]
         l2 = learnedLambdas2[-tau]
-        # h = np.exp(np.sum(logCve(l,bins[sB+tau]) + logCve(l,bins[sY+tau])))
-        # h2 = np.exp(np.sum(logCve(l2,bins[sB-tau]) + logCve(l2,bins[sY-tau])))
+        # h = np.exp(np.sum(logGenVe(l,bins[sB+tau]) + logGenVe(l,bins[sY+tau])))
+        # h2 = np.exp(np.sum(logGenVe(l2,bins[sB-tau]) + logGenVe(l2,bins[sY-tau])))
         h = 0.0
         h2 = 0.0
         for b,y in zip(sB, sY):
-            h += logCve(l,bins[b+tau]) + logCve(l,bins[y+tau])
-            h2 += logCve(l2,bins[b-tau]) + logCve(l2,bins[y-tau])
+            h += logGenVe(l,bins[b+tau]) + logGenVe(l,bins[y+tau])
+            h2 += logGenVe(l2,bins[b-tau]) + logGenVe(l2,bins[y-tau])
         backgroundScore += math.exp(h) + math.exp(h2)
         currScore = 0.0
         currScore2 = 0.0
@@ -1051,8 +1031,8 @@ def genCveBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learne
             for b, y in by:
                 # h += math.exp(l * (bins[b+tau] + bins[y+tau])) / 2.0
                 # h2 += math.exp(l2 * (bins[b-tau] + bins[y-tau])) / 2.0
-                a = logCve(l,bins[b+tau]) + logCve(l,bins[y+tau]) - cLogProb
-                b = logCve(l,bins[b-tau]) + logCve(l,bins[y-tau]) - cLogProb
+                a = logGenVe(l,bins[b+tau]) + logGenVe(l,bins[y+tau]) - cLogProb
+                b = logGenVe(l,bins[b-tau]) + logGenVe(l,bins[y-tau]) - cLogProb
                 h += math.exp(a)
                 h2 += math.exp(b)
             currScore += math.log(h)
@@ -1063,9 +1043,9 @@ def genCveBinBuffer_bag(peptide, charge, bins, num_bins, learnedLambdas2, learne
 
     return (foregroundScore,backgroundScore)
 
-def genCveBinBuffer_og(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
-                       mods = {}, ntermMods = {}, ctermMods = {},
-                       varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
+def genVeBinBuffer_og(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
+                      mods = {}, ntermMods = {}, ctermMods = {},
+                      varMods = {}, ntermVarMods = {}, ctermVarMods = {}):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
@@ -1088,14 +1068,14 @@ def genCveBinBuffer_og(peptide, charge, bins, num_bins, learnedLambdas2, learned
     l = learnedLambdas2[0]
     h = 0.0
     for b,y in zip(sB, sY):
-        h += logCve(l,bins[b]) + logCve(l,bins[y])
+        h += logGenVe(l,bins[b]) + logGenVe(l,bins[y])
     foregroundScore = math.exp(h)
     currScore = 0.0
     l = learnedLambdas3[0]
     for by in byPairs:
         h = 0.0
         for b, y in by:
-            h += math.exp(logCve(l,bins[b]) + logCve(l,bins[y]) - cLogProb)
+            h += math.exp(logGenVe(l,bins[b]) + logGenVe(l,bins[y]) - cLogProb)
         currScore += math.log(h)
     foregroundScore += math.exp(currScore)
 
@@ -1109,8 +1089,8 @@ def genCveBinBuffer_og(peptide, charge, bins, num_bins, learnedLambdas2, learned
         h = 0.0
         h2 = 0.0
         for b,y in zip(sB, sY):
-            h += logCve(l,bins[b+tau]) + logCve(l,bins[y+tau])
-            h2 += logCve(l2,bins[b-tau]) + logCve(l2,bins[y-tau])
+            h += logGenVe(l,bins[b+tau]) + logGenVe(l,bins[y+tau])
+            h2 += logGenVe(l2,bins[b-tau]) + logGenVe(l2,bins[y-tau])
         backgroundScore += math.exp(h)
         backgroundScore += math.exp(h2)
         currScore = 0.0
@@ -1123,8 +1103,8 @@ def genCveBinBuffer_og(peptide, charge, bins, num_bins, learnedLambdas2, learned
             for b, y in by:
                 # h += math.exp(l * (bins[b+tau] + bins[y+tau])) / 2.0
                 # h2 += math.exp(l2 * (bins[b-tau] + bins[y-tau])) / 2.0
-                a = logCve(l,bins[b+tau]) + logCve(l,bins[y+tau]) - cLogProb
-                b = logCve(l,bins[b-tau]) + logCve(l,bins[y-tau]) - cLogProb
+                a = logGenVe(l,bins[b+tau]) + logGenVe(l,bins[y+tau]) - cLogProb
+                b = logGenVe(l,bins[b-tau]) + logGenVe(l,bins[y-tau]) - cLogProb
                 h += math.exp(a)
                 h2 += math.exp(b)
             currScore += math.log(h)
@@ -1252,7 +1232,6 @@ def score_didea_spectra(args, data, ranges,
     """
     """
 
-    cve = args.cve
     scoref = lambda r: r.score
     top_psms = []
     nb = args.num_bins
@@ -1322,7 +1301,7 @@ def score_didea_spectra(args, data, ranges,
 
                 curr_psm = dideaPSM(t, sid, 't', charge, 
                                     tp[3], tp[4], varModSequence, tp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
                                        varModSequence, args.bin_width)
@@ -1339,7 +1318,7 @@ def score_didea_spectra(args, data, ranges,
                     theoSpecKey = d
                 curr_psm = dideaPSM(d, sid, 'd', charge, 
                                     dp[3], dp[4], varModSequence, dp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
                                        varModSequence, args.bin_width)
@@ -1357,7 +1336,6 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                                varMods, ntermVarMods, ctermVarMods):
     """Score the spectra
     """
-    cve = args.cve
     scoref = lambda r: r.score
     top_psms = []
     nb = args.num_bins
@@ -1421,7 +1399,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
 
                 curr_psm = dideaPSM(t, sid, 't', charge, 
                                     tp[3], tp[4], varModSequence, tp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
                                        varModSequence, args.bin_width)
@@ -1438,7 +1416,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                     theoSpecKey = d
                 curr_psm = dideaPSM(d, sid, 'd', charge, 
                                     dp[3], dp[4], varModSequence, dp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, cve,
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods,
                                        varModSequence, args.bin_width)
@@ -1684,15 +1662,15 @@ def runDidea_multithread_inCore(options):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(math.ceil(max_mz / args.bin_width))
-        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
-        # learnedLambdas2 = {}
-        # learnedLambdas3 = {}
-        # for tau in range(-37,38):
-        #     learnedLambdas2[tau] = 0.25
-        #     learnedLambdas3[tau] = 0.25
-        # learnedLambdas2[0] = 1.0
-        # learnedLambdas3[0] = 1.0
+        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        for tau in range(-37,38):
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+        learnedLambdas2[0] = 0.5
+        learnedLambdas3[0] = 0.5
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
