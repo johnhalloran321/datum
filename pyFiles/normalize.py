@@ -245,6 +245,11 @@ def rank05(spectrum):
     spectrum.remove_low_peaks(0.05)
     spectrum.rank_normalize()
 
+def rank0Filter(spectrum):
+    """Pipeline for rank normalization."""
+    spectrum.filter_precursor(thresh = 0.05, precursor_tol = 1.5)
+    spectrum.rank_normalize()
+
 def rank1(spectrum):
     """Pipeline for rank normalization."""
     spectrum.remove_low_peaks(0.10)

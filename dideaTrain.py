@@ -24,6 +24,9 @@ import re
 import csv
 import pyFiles.digest_fasta as df
 
+# Emission functions
+# Note: if looking to use a custome virtual (i.e., unnormalized) emission function,
+# edit genVe in pyFiles/dideaEncoding.py
 from pyFiles.dideaEncoding import genVe, genVe_grad, cve0, cve_grad0
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide
@@ -34,18 +37,15 @@ from digest import (check_arg_trueFalse,
 from pyFiles.dideaEncoding import (histogram_spectra, 
                                    simple_uniform_binwidth, 
                                    byIons)
-# bins_to_vecpt_ratios
-
+from pyFiles.ioPsmFunctions import load_psm_list
 from pyFiles.constants import allPeps
-from pyFiles.shard_spectra import (load_spectra,
-                                   load_spectra_ret_dict)
 from subprocess import call, check_output
 
 # set stdout and stderr for subprocess
 # stdo = open(os.devnull, "w")
 
-# stdo = sys.stdout
-stdo = open(os.devnull, "w")
+stdo = sys.stdout
+# stdo = open(os.devnull, "w")
 stde = sys.stdout
 # stde = stdo
 
@@ -107,6 +107,15 @@ def parseInputOptions():
     help_max_mass = '<float> - Maximum peptide mass.'
     trainingParamsGroup.add_argument("--max_mass", type = int, action = 'store', 
                                       default = 6325, help = help_max_mass)
+    help_n_psms = '<integer> - Number of target PSMs to use for training. Default=1000.'
+    trainingParamsGroup.add_argument('--n-psms', type = int, action = 'store', 
+                                     default = 1000, help = help_n_psms)
+    help_train_from_ident = '<T|F> - Train on a subset of identified PSMs from a search engine.'
+    trainingParamsGroup.add_argument('--train-from-ident', type = str, action = 'store', 
+                                     default = 'true', help = help_train_from_ident)
+    help_mean_lambda0 = '<T|F> - Set prior over shift 0 to average over learned lambdas.'
+    trainingParamsGroup.add_argument('--mean-lambda0', type = str, action = 'store', 
+                                     default = 'false', help = help_mean_lambda0)
     ######### encoding options
     parser.add_argument('--normalize', dest = "normalize", type = str,
                         help = "Name of the spectrum preprocessing pipeline.", 
@@ -139,6 +148,8 @@ def process_args(args):
     # set true or false strings to booleans
     args.l2Reg = check_arg_trueFalse(args.l2Reg)
     args.cve = check_arg_trueFalse(args.cve)
+    args.train_from_ident = check_arg_trueFalse(args.train_from_ident)
+    args.mean_lambda0 = check_arg_trueFalse(args.mean_lambda0)
     # make sure number of input threads does not exceed number of supported threads
     if args.num_threads > mp.cpu_count():
         args.num_threads = mp.cpu_count()
@@ -148,20 +159,6 @@ def find_sid(array, sid):
         if(el==sid):
             return ind
     return -1
-
-# def byIons(peptide, charge):
-#     """Given peptide and charge, return b- and y-ions in seperate vectors
-
-#     """
-#     mass_op = lambda m: int(math.floor(m))
-#     (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic', mass_op)
-#     nterm_fragments = []
-#     cterm_fragments = []
-#     # iterate through possible charges
-#     for c in range(1,charge):
-#         nterm_fragments += [int(round((b+c)/c)) for b in ntm[1:-1]]
-#         cterm_fragments += [int(round((y+18+c)/c)) for y in ctm[1:-1]]
-#     return (nterm_fragments,cterm_fragments)
 
 def dideaShiftDotProducts(peptide, charge, bins, num_bins, 
                           mods, ntermMods, ctermMods, bin_width = 1.):
@@ -292,6 +289,86 @@ def dideaShiftAllIons(peptide, charge, bins, num_bins,
 
     return peakList
 
+def trainFromIdent(options):
+    """Create didea log-sum-exp training data"""
+    output = {}
+    tbl = 'monoisotopic'
+    preprocess = pipeline(options.normalize)
+
+    # parse modifications
+    mods = df.parse_mods(args.mods_spec, True)
+    print "mods:"
+    print mods
+    ntermMods = df.parse_mods(args.nterm_peptide_mods_spec, False)
+    print "n-term mods:"
+    print ntermMods
+    ctermMods = df.parse_mods(args.cterm_peptide_mods_spec, False)
+    print "c-term mods:"
+    print ctermMods
+
+    # Generate the histogram bin ranges
+    ranges = simple_uniform_binwidth(0, options.num_bins, bin_width = options.bin_width)
+
+    vc = int(options.charge)
+    validcharges = set([vc])
+
+    print options.psms
+    targets, _, _ = load_psm_list(options.psms, charge = vc)
+    # keys: (0) sid (1) pep sequence (2) score (3) charge
+    targets.sort(key = lambda r: -r[2])
+    targets = [(int(targets[ind][0]), targets[ind][1]) for ind in range(min(len(targets),options.n_psms))]
+    sids = set([l[0] for l in targets])
+
+    print "Loaded %d training PSMs" % (len(targets))
+
+    # spectra = list(s for s in MS2Iterator(options.spectra, False) if
+    #                (vc in set(s.charges)) & (s.spectrum_id in sids))
+    spectra = list(s for s in MS2Iterator(options.spectra, False) if
+                   (s.spectrum_id in sids))
+
+    if len(spectra) == 0:
+        print >> sys.stderr, 'There are no spectra with charge_line (+%d).' % vc
+        exit(-1)
+
+    psm_sid = re.compile('\d+')
+    psm_peptide = re.compile('[a-zA-Z]+$')
+    #generate vector of sids/peptides
+
+
+# Scan	Peptide	Charge
+    sids = []
+    for (st,pt) in targets: sids.append(st)
+
+    sidsPer = []
+    for spec_ind,s in enumerate(spectra):
+        sid = s.spectrum_id
+        preprocess(s)
+        # Generate the spectrum observations.
+        bins = histogram_spectra(s, ranges, max)
+        bins[0] = 0.0
+        bins[-1] = 0.0
+        # find psm
+        ind = find_sid(sids, s.spectrum_id)
+
+        sidsPer.append(sid)
+        if (ind  != -1):
+            p = Peptide(targets[ind][1])
+            if options.cve:
+                for tau, tauProd in zip(range(-37,38),dideaShiftDotProducts(p, vc, bins, len(bins), mods, ntermMods, ctermMods, options.bin_width)):
+                    output[spec_ind, tau] = tauProd
+            else:
+                a = [peaks for peaks in dideaShiftAllIons(p, vc, bins, len(bins), mods, ntermMods, ctermMods, options.bin_width)]
+                # pad uneven peak lists
+                max_len = np.array([len(array) for array in a]).max()
+                default_value = 0
+                # note: have to work with transpose of the data matrix, so that we can do a simple
+                # element-wise multiplication with the theta vector, i.e., so that the data matrix
+                # has |\tau| columns
+                output[spec_ind] = np.transpose([np.pad(array, (0, max_len - len(array)), mode='constant', constant_values=default_value) for array in a])
+
+    # output is the number of spectra and a dictionary which has all of the shifted dot-products per spectrum
+    return (len(spectra),output, sidsPer)
+
 def genDideaTrainingData(options):
     """Create didea log-sum-exp training data"""
     output = {}
@@ -337,8 +414,6 @@ def genDideaTrainingData(options):
         sid = s.spectrum_id
         preprocess(s)
         # Generate the spectrum observations.
-        # truebins = histogram_spectra(s, ranges, max)
-        # bins = bins_to_vecpt_ratios(truebins, 'intensity', 0.0)
         bins = histogram_spectra(s, ranges, max)
         bins[0] = 0.0
         bins[-1] = 0.0
@@ -438,7 +513,6 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
         numer[tau] = 0.0
 
     for i in range(numData):
-        # print "sid=%d" % sids[i]
         denom = 0.0
         sumExp = 0.0
         for tau in range(-37,38):
@@ -459,12 +533,11 @@ def batchFuncEvalLambdas(lambdas, options, numData, data):
                 grad[tau] += math.exp(math.log(numer[tau])-math.log(denom)) / float(numData)
             if options.l2Reg:
                 grad[tau] += (options.alpha/2.0 * lambdas[tau]) / float(numData)
-        # exit(-1)
     return grad, logSumExp
 
-def cve_general_ll(lambdas, options, numData, data):
-    # calculate log-likelihood over the training data
-    # data is serialized as: data[sid,\tau] = list of peak intensities
+def generalVe_ll(lambdas, options, numData, data):
+    # Calculate log-likelihood over the training data.
+    # Data is serialized as: data[sid,\tau] = list of peak intensities
     # for shift \tau of PSM sid
     const = options.alpha/2.0 # * float(numData))
     totalLogProbEv = 0.0
@@ -607,7 +680,10 @@ def funcEvalLambdasB(lambdas, dataPoints, data, numSamples, numData, alpha = 0.4
 def batchGradientAscentShiftPrior(options):
     """Run batch gradient ascent on the training data"""
     numThreads = min(mp.cpu_count() - 1, options.num_threads)
-    (numData, data, sids) = genDideaTrainingData(options)
+    if options.train_from_ident:
+        (numData, data, sids) = trainFromIdent(options)
+    else:
+        (numData, data, sids) = genDideaTrainingData(options)
     optEval = 100.0
     optEvalPrev = float("-inf")
     thresh = options.thresh
@@ -648,7 +724,7 @@ def batchGradientAscentShiftPrior(options):
         else:
             grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
     else:
-        grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
+        grad, logSumExp = generalVe_ll(lambdas, options, numData, data)
     optEval = -logSumExp
     l2 = 0.0
     if options.cve:
@@ -671,11 +747,10 @@ def batchGradientAscentShiftPrior(options):
             # is exploited to significantly optimize learning
             if options.num_threads > 1:
                 grad, logSumExp = batchFuncEvalLambdas_mp(lambdas, options, numData, data, parallel_partitions, numThreads)
-                # grad, logSumExp = batchFuncEvalLambdas_mpB(lambdas, options, numData, data, numThreads, sids)
             else:
                 grad, logSumExp = batchFuncEvalLambdas(lambdas, options, numData, data)
         else:
-            grad, logSumExp = cve_general_ll(lambdas, options, numData, data)
+            grad, logSumExp = generalVe_ll(lambdas, options, numData, data)
         optEval = -logSumExp
         l2 = 0.0
         if options.cve:
@@ -693,10 +768,16 @@ def batchGradientAscentShiftPrior(options):
         # write output matrix
     fid = open(options.output, "w")
     if options.cve:
-        lambdas[0] = options.lmb0Prior
+        if options.mean_lambda0:
+            lambdas[0] = np.mean([lambdas[tau] for tau in range(-37,38)])
+        else:
+            lambdas[0] = options.lmb0Prior
         # lambdas[0] = np.mean([lambdas[tau] for tau in range(-37,38)])
     else:
-        lambdas[37] = options.lmb0Prior
+        if options.mean_lambda0:
+            lambdas[37] = np.mean(lambdas)
+        else:
+            lambdas[37] = options.lmb0Prior
         # lambdas[37] = np.mean(lambdas)
     for ind, tau in enumerate(range(-37,38)):
         if options.cve:

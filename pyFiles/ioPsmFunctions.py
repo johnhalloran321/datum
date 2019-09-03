@@ -433,6 +433,94 @@ def load_psms(filename, stripSeqStringMassOffsets = True):
     f.close()
     return targets, decoys, num_psms
 
+def load_psm_list(filename, stripSeqStringMassOffsets = True, charge = 2):
+    """Load an identification file, the output of spectrum identification.
+
+    Standard DRIP output fields:
+    (1)Kind (2)Sid (3)Frames (4)Score (5)Peptide (6)Obs_Inserts	(7)Theo_Deletes	(8)Obs_peaks_scored	
+    (9)Theo_peaks_used	(10)Sum_obs_intensities	(11)Sum_scored_mz_dist	(12)Charge
+
+    Assume the tab-delimited file has the following fields:
+    Kind, Score, Sid, Charge
+
+    Todo: change Sid to scan
+    """
+    targets = []
+    decoys = []
+
+    f = open(filename)
+    reader = [l for l in csv.DictReader(f, delimiter = '\t', skipinitialspace = True)]
+
+    p = reader[0]
+
+    if "Sid" in p:
+        sidKey = "Sid"
+    else:
+        sidKey = "Scan"
+
+    reader.sort(key = lambda r: int(r[sidKey]))
+
+    if sidKey not in p:
+        print "Expected field %s not present in file %s, exitting" % (sidKey, filename)
+        exit(-1)
+    if "Kind" not in p:
+        print "Expected field Kind not present in file %s, exitting" % filename
+        exit(-1)
+    if "Score" not in p:
+        print "Expected field Score not present in file %s, exitting" % filename
+        exit(-1)
+    if "Charge" not in p:
+        print "Expected field Charge not present in file %s, exitting" % filename
+        exit(-1)
+
+    num_psms = 0
+
+    keys = []
+    psmKeys = set(["Kind", sidKey, "Charge", "Score", "Peptide"])
+    for i in p:
+        if i not in psmKeys:
+            keys.append(i)
+
+    auxKeys = ["Flanking_nterm", "Flanking_cterm", "Protein_id"]
+    auxKeySet = set(auxKeys)
+
+    for sid, rows in itertools.groupby(reader, lambda r: int(r[sidKey])):
+        for p in rows:
+            kind = p["Kind"].lower()
+            try:
+                c = int(p["Charge"])
+            except TypeError:
+                print "Could not convert charge %s for sid %d to int, exitting" % (p["Charge"], sid)
+                exit(-1)
+
+            if charge == 2:
+                if c > 2:
+                    continue
+            else:
+                if c <= 2:
+                    continue
+                    
+
+            if stripSeqStringMassOffsets:
+                # strip any mass offsets (variable or static) denoted in the peptide string
+                pep_sequence = re.sub("[\[].*?[\]]", "", p["Peptide"])
+            else:
+                pep_sequence = p["Peptide"]
+
+            el = (int(p[sidKey]),
+                  pep_sequence,
+                  float(p["Score"]),
+                  int(p["Charge"]))
+
+            if kind=='t' or kind=='target':
+                targets.append(el)
+                num_psms += 1
+            elif kind=='d' or kind=='decoy':
+                decoys.append(el)
+                num_psms += 1
+    f.close()
+    return targets, decoys, num_psms
+
 def load_psm_library(filename, stripSeqStringMassOffsets = True):
     """Load high-confidence PSMs from a tab-delimited file with fields: Peptide, Scan, Charge
     """

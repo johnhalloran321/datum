@@ -346,6 +346,29 @@ class MS2Spectrum(object):
         self.mz = processed_mz
         self.intensity = processed_intensity
 
+    def filter_precursor(self, thresh = 0.05, precursor_tol = 0):
+        """Max-normalize to number of N evenly-spaced regions, pruning
+        peaks which are >= 5% of maximum peak intensity
+        """
+        processed_mz = []
+        processed_intensity = []
+
+        precursor_lb = self.precursor_mz - precursor_tol
+        precursor_ub = self.precursor_mz + precursor_tol
+        for mz, i in zip(self.mz, self.intensity):
+            if i >= thresh:
+                if precursor_tol != 0.0:
+                    if mz > precursor_ub or mz < precursor_lb:
+                        processed_mz.append(mz)
+                        processed_intensity.append(i)
+                else:
+                    processed_mz.append(mz)
+                    processed_intensity.append(i)
+        
+        if len(processed_mz) > 0:
+            self.mz = processed_mz
+            self.intensity = processed_intensity
+
     def region_normalize_unnorm(self, regions, min_mz, max_mz, thresh, precursor_tol = 0):
         """Max-normalize to number of N evenly-spaced regions, pruning
         peaks which are >= 5% of maximum peak intensity

@@ -1662,15 +1662,15 @@ def runDidea_multithread_inCore(options):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(math.ceil(max_mz / args.bin_width))
-        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        for tau in range(-37,38):
-            learnedLambdas2[tau] = 0.25
-            learnedLambdas3[tau] = 0.25
-        learnedLambdas2[0] = 0.5
-        learnedLambdas3[0] = 0.5
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # for tau in range(-37,38):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        # learnedLambdas2[0] = 0.5
+        # learnedLambdas3[0] = 0.5
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
