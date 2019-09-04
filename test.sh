@@ -403,6 +403,31 @@ function dripDideaSearchHighres {
 	--num-threads 1
 
 }
+
+function testRecalibrate {
+    # echo "Digesting protein database"
+    # python -OO digest.py \
+    # 	--recalibrate True \
+    # 	--min-length 6 \
+    # 	--fasta data/yeast.fasta \
+    # 	--enzyme 'trypsin/p' \
+    # 	--monoisotopic-precursor true \
+    # 	--missed-cleavages 0 \
+    # 	--digestion 'full-digest' \
+    # 	--digest-dir 'yeastDigest'
+
+    echo "Searching spectra"
+    python -OO dripSearch.py \
+    	--digest-dir 'yeastDigest' \
+    	--precursor-window 3.0 \
+    	--learned-means dripLearned.means \
+    	--learned-covars dripLearned.covars \
+	--num-threads $NUMTHREADS \
+    	--top-match 1 \
+    	--spectra data/test.ms2 \
+    	--output dripSearch-test-output
+}
+
 # available examples (see function above for description): 
 # trainTest
 # testBeam
@@ -431,7 +456,8 @@ function dripDideaSearchHighres {
 
 #####  Didea
 # trainDidea
-testDidea
+# testDidea
 
 # dideaSearchHighresVarMods
 # dripDideaSearchHighres
+testRecalibrate

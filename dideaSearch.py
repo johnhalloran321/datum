@@ -44,7 +44,7 @@ from pyFiles.shard_spectra import (load_spectra,
                                    candidate_spectra_generator,
                                    candidate_spectra_memeffic_generator,
                                    candidate_binarydb_spectra_generator)
-from pyFiles.peptide_db import PeptideDB, SimplePeptideDB
+from pyFiles.peptide_db import PeptideDB
 
 def didea_load_database(args, varMods, ntermVarMods, ctermVarMods):
     """ 

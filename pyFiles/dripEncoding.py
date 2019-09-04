@@ -10,12 +10,16 @@ import os
 import math
 import sys
 import shlex
+import collections
 
+from digest import load_digested_peptides_var_mods
 from shutil import rmtree
 from pfile.wrapper import PFile
 from dripBootParameters import init_strictOrbitrapRiptide_learned_means, writeCPTs, writeHighResCPTs
 from pyFiles.constants import allPeps, mass_h, mass_h2o
 from subprocess import call, check_output
+from shard_spectra import load_spectra, grouper
+from pyFiles.peptide_db import PeptideDB
 
 maxFragmentIonCharge = 2
 maxHighResFragmentIonCharge = 2
@@ -1432,3 +1436,135 @@ def load_drip_means(master_file):
         means = init_strictOrbitrapRiptide_learned_means()
 
     return means
+
+####### drip search encoding functions
+def drip_load_database(args, varMods, ntermVarMods, ctermVarMods):
+    """ 
+    """
+    t = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'targets.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+    d = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'decoys.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+    r = []
+    if args.recalibrate:
+        r = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'recalibrateDecoys.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+
+    return t,d, r
+
+def drip_candidate_spectra_generator(args, var_mods, nterm_var_mods, cterm_var_mods):
+    """ Load all spectra and candidate targets/decoys into memory,
+        yield each spectrum and candidates
+    """
+    targets, decoys, recal_decoys = drip_load_database(args, var_mods, nterm_var_mods, cterm_var_mods)
+    spectra, minMz, maxMz, validcharges = load_spectra(args.spectra,
+                                                       args.charges, 
+                                                       randOrder = True)
+
+    # set global variable to parsed/all encountered charges
+    args.charges = validcharges
+
+    n = len(spectra)
+    if n < args.shards:
+        print('More shards than spectra: %d vs. %d, defaulting to %d shards' % (
+        args.shards, n, max(int(n/4), 1)))
+        args.shards = max(int(n/4), 1)
+    sz = int(math.floor(float(n)/args.shards))
+    print args.shards
+    print >> sys.stderr, 'Each shard has at most %d spectra' % sz
+
+    # calculate candidate peptides, create pickles
+    mass_h = 1.00727646677
+    for part, group in enumerate(grouper(sz, spectra)):
+        spectra_app = []
+        spectra_list = list(s for s in group if s)
+        emptySpectra = 0
+        # Use neutral mass to select peptides (Z-lines report M+H+ mass)
+        t = collections.defaultdict(list)
+        if args.decoys:
+            d = collections.defaultdict(list)
+            if args.recalibrate:
+                r = collections.defaultdict(list)
+        for s in spectra_list:
+            spec_added = 0
+            repSpec = 0
+            for c, m in s.charge_lines:
+                if c in validcharges:
+                    tc = targets.filter(m - mass_h, args.precursor_window, args.ppm)
+                    if args.decoys:
+                        dc = decoys.filter(m - mass_h, args.precursor_window, args.ppm)
+                        if args.recalibrate:
+                            rc = recal_decoys.filter(m - mass_h, args.precursor_window, args.ppm)
+                            if len(tc) > 0 and len(dc) > 0 and len(rc):
+                                print "sid=%d, charge=%d, num targets=%d, num decoys=%d, num recal_decoys=%d" % (s.spectrum_id, c, len(tc), len(dc), len(rc))
+                                if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                    t[(s.spectrum_id,c)] += tc
+                                    d[(s.spectrum_id,c)] += dc
+                                    r[(s.spectrum_id,c)] += rc
+                                    repSpec = 1
+                                else:
+                                    t[(s.spectrum_id,c)] = tc
+                                    d[(s.spectrum_id,c)] = dc
+                                    r[(s.spectrum_id,c)] = rc
+                                if not spec_added:
+                                    spectra_app.append(s)
+                                    spec_added = 1
+                            else:
+                                emptySpectra += 1
+                        else:
+                            if len(tc) > 0 and len(dc) > 0:
+                                print "sid=%d, charge=%d, num targets=%d, num decoys=%d" % (s.spectrum_id, c, len(tc), len(dc))
+                                if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                    t[(s.spectrum_id,c)] += tc
+                                    d[(s.spectrum_id,c)] += dc
+                                    repSpec = 1
+                                else:
+                                    t[(s.spectrum_id,c)] = tc
+                                    d[(s.spectrum_id,c)] = dc
+                                if not spec_added:
+                                    spectra_app.append(s)
+                                    spec_added = 1
+                            else:
+                                emptySpectra += 1
+                    else:
+                        if len(tc) > 0:
+                            print "sid=%d, charge=%d, num targets=%d" % (s.spectrum_id, c, len(tc))
+                            if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                t[(s.spectrum_id,c)] += tc
+                                repSpec = 1
+                            else:
+                                t[(s.spectrum_id,c)] = tc
+                            if not spec_added:
+                                spectra_app.append(s)
+                                spec_added = 1
+                        else:
+                            emptySpectra += 1
+
+            if repSpec: # prune any multiply added peptide candidates
+                for c in validcharges:
+                    if (s.spectrum_id, c) in t:
+                        t[(s.spectrum_id, c)] = list(set(t[(s.spectrum_id, c)]))
+                        if args.decoys:
+                            d[(s.spectrum_id, c)] = list(set(d[(s.spectrum_id, c)]))
+                            if args.recalibrate:
+                                r[(s.spectrum_id, c)] = list(set(r[(s.spectrum_id, c)]))
+
+        print "%d spectra with empty candidate sets" % emptySpectra
+        if args.decoys:
+            if args.recalibrate:
+                data = { 'spectra' : spectra_app,
+                         'target' : t,
+                         'decoy' : d,
+                         'recal_decoy' : r,
+                         'minMz' : minMz, 
+                         'maxMz' : maxMz}
+            else:
+                data = { 'spectra' : spectra_app,
+                         'target' : t,
+                         'decoy' : d,
+                         'minMz' : minMz, 
+                         'maxMz' : maxMz}
+        else:
+            data = { 'spectra' : spectra_app,
+                     'target' : t,
+                     'minMz' : minMz, 
+                     'maxMz' : maxMz}
+        yield data
+
