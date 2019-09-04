@@ -2676,7 +2676,7 @@ if __name__ == '__main__':
                                         default = 'True', help = monoisotopic_precursor_help)
     peptide_buffer_help = """<int> - The maximum number of peptides to keep in memory."""
     peptidePropertiesGroup.add_argument('--peptide-buffer', type = int, action = 'store',
-                                        default = 100000, help = peptide_buffer_help)
+                                        default = 100000000, help = peptide_buffer_help)
     ############## amino acid modifications
     aaModsGroup = parser.add_argument_group('aaModsGroup', 'Options for amino acid modifications.')
     aaModsGroup.add_argument('--mods-spec', type = str, action = 'store',
