@@ -23,6 +23,7 @@ import struct
 import glob
 import itertools
 
+from dideaSearch import didea_load_database
 from pyFiles.recalibrateCharge import recalibrate_charge_psms, write_drip_recal
 from shutil import rmtree
 from pyFiles.spectrum import MS2Spectrum
@@ -31,7 +32,7 @@ from pyFiles.normalize import pipeline
 from pyFiles.pfile.wrapper import PFile
 # from pyFiles.args import make_dir_callback
 from digest import (check_arg_trueFalse,
-                        parse_var_mods)
+                    parse_var_mods, load_digested_peptides_var_mods)
 from pyFiles.dripEncoding import (create_drip_structure,
                                   create_drip_master,
                                   triangulate_drip,
@@ -366,6 +367,115 @@ def parseInputOptions():
     # parser.print_help()
     # exit(0)
     return parser.parse_args()
+
+def drip_load_database(args, varMods, ntermVarMods, ctermVarMods):
+    """ 
+    """
+    t = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'targets.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+    d = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'decoys.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+    if args.recalibrate:
+        r = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'recalibrateDecoys.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+    else:
+        r = []
+
+    return t,d, r
+
+def drip_candidate_spectra_generator(args, varMods, ntermVarMods, ctermVarMods):
+    """ Load all spectra and candidate targets/decoys into memory,
+        yield each spectrum and candidates
+    """
+
+    targets, decoys = didea_load_database(args, var_mods, nterm_var_mods, cterm_var_mods)
+    # create target/decoy database instances
+    targets = SimplePeptideDB(targets)
+    if decoys:
+        decoys = SimplePeptideDB(decoys)
+    # Compute the number of spectra in each slice.
+    # Should be ok to load all spectra into memory so long as we 
+    # don't also load all PSMs into memory
+    spectra, minMz, maxMz, validcharges = load_spectra(args.spectra,
+                                                       args.charges, 
+                                                       args.ident,
+                                                       True)
+
+    # set global variable to parsed/all encountered charges
+    args.charges = validcharges
+
+    n = len(spectra)
+    if n < args.shards:
+        print('More shards than spectra: %d vs. %d, defaulting to %d shards' % (
+        args.shards, n, max(int(n/4), 1)))
+        args.shards = max(int(n/4), 1)
+    sz = int(math.floor(float(n)/args.shards))
+    print args.shards
+    print >> sys.stderr, 'Each shard has at most %d spectra' % sz
+
+    # calculate candidate peptides, create pickles
+    mass_h = 1.00727646677
+    for part, group in enumerate(grouper(sz, spectra)):
+        spectra_app = []
+        spectra_list = list(s for s in group if s)
+        emptySpectra = 0
+        # Use neutral mass to select peptides (Z-lines report M+H+ mass)
+        t = collections.defaultdict(list)
+        if args.decoys:
+            d = collections.defaultdict(list)
+        for s in spectra_list:
+            spec_added = 0
+            repSpec = 0
+            for c, m in s.charge_lines:
+                if c in validcharges:
+                    tc = targets.filter(m - mass_h, args.precursor_window, args.ppm)
+                    if args.decoys:
+                        dc = decoys.filter(m - mass_h, args.precursor_window, args.ppm)
+                        if len(tc) > 0 and len(dc) > 0:
+                            print "sid=%d, charge=%d, num targets=%d, num decoys=%d" % (s.spectrum_id, c, len(tc), len(dc))
+                            if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                t[(s.spectrum_id,c)] += tc
+                                d[(s.spectrum_id,c)] += dc
+                                repSpec = 1
+                            else:
+                                t[(s.spectrum_id,c)] = tc
+                                d[(s.spectrum_id,c)] = dc
+                            if not spec_added:
+                                spectra_app.append(s)
+                                spec_added = 1
+                        else:
+                            emptySpectra += 1
+                    else:
+                        if len(tc) > 0:
+                            print "sid=%d, charge=%d, num targets=%d" % (s.spectrum_id, c, len(tc))
+                            if (s.spectrum_id,c) in t: # high res MS1 may have multiple precursor charge estimates
+                                t[(s.spectrum_id,c)] += tc
+                                repSpec = 1
+                            else:
+                                t[(s.spectrum_id,c)] = tc
+                            if not spec_added:
+                                spectra_app.append(s)
+                                spec_added = 1
+                        else:
+                            emptySpectra += 1
+
+            if repSpec: # prune any multiply added peptide candidates
+                for c in validcharges:
+                    if (s.spectrum_id, c) in t:
+                        t[(s.spectrum_id, c)] = list(set(t[(s.spectrum_id, c)]))
+                        if args.decoys:
+                            d[(s.spectrum_id, c)] = list(set(d[(s.spectrum_id, c)]))
+
+        print "%d spectra with empty candidate sets" % emptySpectra
+        if args.decoys:
+            data = { 'spectra' : spectra_app,
+                     'target' : t,
+                     'decoy' : d,
+                     'minMz' : minMz, 
+                     'maxMz' : maxMz}
+        else:
+            data = { 'spectra' : spectra_app,
+                     'target' : t,
+                     'minMz' : minMz, 
+                     'maxMz' : maxMz}
+        yield data
 
 def runVit(vitString, stdo, stde):
     return call(vitStr.split(), stdout = stdo, stderr = stde)

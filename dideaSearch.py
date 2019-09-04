@@ -29,7 +29,7 @@ from pyFiles.peptide import Peptide #, amino_acids_to_indices
 from pyFiles.normalize import pipeline
 from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz
 from digest import (check_arg_trueFalse,
-                        parse_var_mods, load_digested_peptides_var_mods)
+                    parse_var_mods, load_digested_peptides_var_mods)
 from pyFiles.dideaEncoding import (histogram_spectra, simple_uniform_binwidth,
                                    round_op, 
                                    peptide_mod_offset_screen, peptide_var_mod_offset_screen,
