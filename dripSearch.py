@@ -603,10 +603,16 @@ def make_drip_data_highres(args, data,
             if (s.spectrum_id, charge) not in target:
                 continue
             tl = target[(s.spectrum_id,charge)]
-            dl = decoy[(s.spectrum_id,charge)]
+            if (s.spectrum_id,charge) in decoy:
+                dl = decoy[(s.spectrum_id,charge)]
+            else:
+                dl = []
 
             if args.recalibrate:
-                recal_dl = recal_decoy[(s.spectrum_id,charge)]
+                if (s.spectrum_id,charge) in recal_decoy:
+                    recal_dl = recal_decoy[(s.spectrum_id,charge)]
+                else:
+                    recal_dl = []
 
             max_target_theo_peaks = 0
             max_decoy_theo_peaks = 0
@@ -776,9 +782,13 @@ def make_drip_data_highres(args, data,
 
             # Generate the peptide-spectrum matches.
             tl = target[(sid,charge)]
-            dl = decoy[(sid,charge)]
+            dl = []
+            if (sid,charge) in decoy:
+                dl = decoy[(sid,charge)]
             if args.recalibrate:
-                recal_dl = recal_decoy[(sid, charge)]
+                recal_dl = []
+                if (sid,charge) in recal_decoy:
+                    recal_dl = recal_decoy[(sid, charge)]
 
             for tp in tl:
                 pepType = 1

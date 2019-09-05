@@ -803,26 +803,27 @@ def parse_drip_segments_binDb(s, filename, dripMeans,
     for charge in target_psms:
         # return topMatch number of targets and decoys
         target_psms[charge].sort(key = lambda x: x.score, reverse = True)
-        decoy_psms[charge].sort(key = lambda x: x.score, reverse = True)
-        if recalibrate:
-            recal_decoy_psms[charge].sort(key = lambda x: x.score, reverse = True)
         for i in range(min(topMatch, len(target_psms[charge]))):
             currPsm = target_psms[charge][i]
             currPsm.add_obs_spectrum(currSpec)
             # currPsm.spectrum = currSpec
             sid_td_psms.append(currPsm)
 
-        for i in range(min(topMatch, len(decoy_psms[charge]))):
-            currPsm = decoy_psms[charge][i]
-            # currPsm.spectrum = currSpec
-            currPsm.add_obs_spectrum(currSpec)
-            sid_td_psms.append(currPsm)
-
-        if recalibrate:
-            for i in range(min(topMatch, len(recal_decoy_psms[charge]))):
-                currPsm = recal_decoy_psms[charge][i]
+        if charge in decoy_psms:
+            decoy_psms[charge].sort(key = lambda x: x.score, reverse = True)
+            for i in range(min(topMatch, len(decoy_psms[charge]))):
+                currPsm = decoy_psms[charge][i]
+                # currPsm.spectrum = currSpec
                 currPsm.add_obs_spectrum(currSpec)
                 sid_td_psms.append(currPsm)
+
+        if recalibrate:
+            if charge in recal_decoy_psms:
+                recal_decoy_psms[charge].sort(key = lambda x: x.score, reverse = True)
+                for i in range(min(topMatch, len(recal_decoy_psms[charge]))):
+                    currPsm = recal_decoy_psms[charge][i]
+                    currPsm.add_obs_spectrum(currSpec)
+                    sid_td_psms.append(currPsm)
                 
     return sid_td_psms
 
