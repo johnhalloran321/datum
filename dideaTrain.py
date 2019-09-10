@@ -112,7 +112,7 @@ def parseInputOptions():
                                      default = 1000, help = help_n_psms)
     help_train_from_ident = '<T|F> - Train on a subset of identified PSMs from a search engine.'
     trainingParamsGroup.add_argument('--train-from-ident', type = str, action = 'store', 
-                                     default = 'true', help = help_train_from_ident)
+                                     default = 'false', help = help_train_from_ident)
     help_mean_lambda0 = '<T|F> - Set prior over shift 0 to average over learned lambdas.'
     trainingParamsGroup.add_argument('--mean-lambda0', type = str, action = 'store', 
                                      default = 'false', help = help_mean_lambda0)

@@ -118,13 +118,13 @@ class dideaPSM(object):
     def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, useCve = True,
                       mods = {}, ntermMods = {}, ctermMods = {},
                       varMods = {}, varNtermMods = {}, varCtermMods = {}, varModSequence = [], 
-                      bin_width = 1.):
+                      bin_width = 1., tau_card = 75):
         if useCve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
                                                                                         self.charge,bins,num_bins, lambdas2, lambdas3, 
                                                                                         mods, ntermMods, ctermMods, 
                                                                                         varMods, varNtermMods, varCtermMods,
-                                                                                        varModSequence, bin_width)
+                                                                                        varModSequence, bin_width, tau_card)
         else:
             (foregroundScore,backgroundScore) = genVeBinBuffer(Peptide(self.peptide),
                                                                self.charge,bins,num_bins, lambdas2, lambdas3, 
@@ -228,9 +228,15 @@ def parseInputOptions():
     help_num_bins = '<integer> - The number of bins to quantize observed spectrum. Default=2000.'
     searchParamsGroup.add_argument('--num-bins', type = int, action = 'store', 
                                    default = 2000, help = help_num_bins)
-    help_bin_width = '<integer> - The bin width of m/z values. Default=1.0.'
+    help_bin_width = '<float> - The bin width of m/z values. Default=1.0.'
     searchParamsGroup.add_argument('--bin-width', type = float, action = 'store', 
                                    default = 1.0, help = help_bin_width)
+    help_tau_card = '<integer> - Cardinality of the shift random variable. Default=75.'
+    searchParamsGroup.add_argument('--tau-card', type = int, action = 'store', 
+                                   default = 75, help = help_tau_card)
+    help_cve_prior = '<float> - Uniform prior weight on CVE shifts.  Default = 0.25'
+    searchParamsGroup.add_argument('--cve-prior', type = float, action = 'store', 
+                                   default = 0.25, help = help_cve_prior)
     ############## Cluster usage parameters
     clusterUsageGroup = parser.add_argument_group('clusterUsageGroup', 'Cluster data generation options.')
     help_num_cluster_jobs = '<integer> - the number of jobs to run in parallel. Default=1.'
@@ -736,12 +742,12 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                                             mods = {}, ntermMods = {}, ctermMods = {},
                                             varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
-                                            bin_width = 1.):
+                                            bin_width = 1., tauCard = 75):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
     lastBin = num_bins-1
-    tauCard = 75
+    tauMin = (tauCard - 1 ) / 2
     (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic')
     if varMods or ntermVarMods or ctermVarMods:
         b_offsets, y_offsets = peptide_var_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods, 
@@ -762,28 +768,6 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     ySeq = np.array(ySeq).astype(int)
     sB = np.array(sB).astype(int)
 
-    # # if peptide.seq == 'SILITTIENALDNEEFESHDK':
-    # if peptide.seq == 'VAGFVTHLMK':
-    #     print peptide.seq
-    #     print b_offsets
-    #     print y_offsets
-    #     print ntm
-    #     print ctm
-    #     print bSeq - 75
-    #     print ySeq - 75
-    #     print sorted(sB)
-    # #     # np.set_printoptions(threshold=sys.maxsize)
-    # #     # print bins
-    #     print sum([1 for i in sB if bins[i] > 0.])
-    #     print sum([bins[i] for i in sB])
-    # #     # print sum(bins)
-    #     for i in sB:
-    #         print i-75, bins[i-1], bins[i], bins[i+1]
-    #     for i in bSeq:
-    #         print i-75, bins[i]
-    #     for i in ySeq:
-    #         print i-75, bins[i]
-
     backgroundScore = 0.0
     cLogProb = math.log(2.0)
 
@@ -799,14 +783,14 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     backgroundScore += foregroundScore
     foregroundScore = math.log(foregroundScore)
 
-    l = np.array([learnedLambdas2[tau] for tau in range(-37,38)])
-    l2 = np.array([learnedLambdas3[tau] for tau in range(-37,38)])
+    l = np.array([learnedLambdas2[tau] for tau in range(-tauMin,tauMin + 1)])
+    l2 = np.array([learnedLambdas3[tau] for tau in range(-tauMin,tauMin + 1)])
 
-    backgroundScore += np.sum(np.exp(l*np.sum(bins[sB + [[tau] for tau in range(-37,38)]], axis=1))) - a
+    backgroundScore += np.sum(np.exp(l*np.sum(bins[sB + [[tau] for tau in range(-tauMin,tauMin + 1)]], axis=1))) - a
     # h = np.exp(l2*(bins[bSeq + [[tau] for tau in range(-37,38)]] + bins[ySeq + [[tau] for tau in range(-37,38)]])) - cLogProb
     # backgroundScore += math.exp(np.sum(np.log(np.sum(h,axi=1)))
     # next, background score, eliminating iterating over \tau=0
-    for tau in range(-37,0):
+    for tau in range(-tauMin,0):
         l = learnedLambdas3[tau]
         l2 = learnedLambdas3[-tau]
         # marginalize over charge variable
@@ -1252,7 +1236,7 @@ def score_didea_spectra(args, data, ranges,
     nb = args.num_bins
 
     lastBin = nb - 1
-    tauCard = 75
+    tauCard = args.tau_card
     # calculate tau-radius around bin indices
     rMin = -tauCard
     rMax = lastBin + tauCard
@@ -1304,7 +1288,7 @@ def score_didea_spectra(args, data, ranges,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence, args.bin_width)
+                                       varModSequence, args.bin_width, tauCard)
                 charged_target_psms.append(curr_psm)
 
             for dp in decoy[(s.spectrum_id,charge)]:
@@ -1321,7 +1305,7 @@ def score_didea_spectra(args, data, ranges,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence, args.bin_width)
+                                       varModSequence, args.bin_width, tauCard)
                 charged_decoy_psms.append(curr_psm)
 
         top_target = max(charged_target_psms,key = scoref)
@@ -1352,7 +1336,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
     nb = args.num_bins
 
     lastBin = nb - 1
-    tauCard = 75
+    tauCard = args.tau_card
     # calculate tau-radius around bin indices
     rMin = -tauCard
     rMax = lastBin + tauCard
@@ -1402,7 +1386,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence, args.bin_width)
+                                       varModSequence, args.bin_width, tauCard)
                 charged_target_psms.append(curr_psm)
 
             for dp in (decoys.filter(m - mass_h, args.precursor_window, args.ppm)):
@@ -1419,7 +1403,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        mods, ntermMods, ctermMods,
                                        varMods, ntermVarMods, ctermVarMods,
-                                       varModSequence, args.bin_width)
+                                       varModSequence, args.bin_width, tauCard)
                 charged_decoy_psms.append(curr_psm)
 
         if charged_target_psms:
@@ -1437,6 +1421,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
 def runDidea_inCore(args):    
     """ Run Didea on a single thread
     """
+    tauMin = (args.tau_card - 1 ) / 2
     # Load spectra
     spectra, _, _, validcharges = load_spectra(args.spectra,
                                                args.charges)
@@ -1461,15 +1446,15 @@ def runDidea_inCore(args):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(round(max_mz / args.bin_width))
-        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
-        # learnedLambdas2 = {}
-        # learnedLambdas3 = {}
-        # for tau in range(-37,38):
-        #     learnedLambdas2[tau] = 0.25
-        #     learnedLambdas3[tau] = 0.25
-        # learnedLambdas2[0] = 1.0
-        # learnedLambdas3[0] = 1.0
+        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        for tau in range(-tauMin,tauMin + 1):
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+        learnedLambdas2[0] = args.cve_prior
+        learnedLambdas3[0] = args.cve_prior
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1623,7 +1608,7 @@ def runDidea_multithread(options):
 def runDidea_multithread_inCore(options):
     """ Run Didea on a multiple threads
     """
-
+    tauMin = (options.tau_card - 1 ) / 2
     # parse modifications
     mods, var_mods = parse_var_mods(options.mods_spec, True)
     nterm_mods, nterm_var_mods = parse_var_mods(options.nterm_peptide_mods_spec, False)
@@ -1662,15 +1647,28 @@ def runDidea_multithread_inCore(options):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(math.ceil(max_mz / args.bin_width))
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # learnedLambdas2[0] = 0.25
+        # learnedLambdas3[0] = 0.25
+        # for tau in range(1,tauMin+1):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        #     learnedLambdas2[-tau] = 0.25
+        #     learnedLambdas3[-tau] = 0.25
+            # learnedLambdas2[tau] = learnedLambdas2[0] - 0.01*tau
+            # learnedLambdas3[tau] = learnedLambdas3[0] - 0.01*tau
+            # learnedLambdas2[-tau] = learnedLambdas2[tau]
+            # learnedLambdas3[-tau] = learnedLambdas3[tau]
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
         # learnedLambdas2 = {}
         # learnedLambdas3 = {}
-        # for tau in range(-37,38):
+        # for tau in range(-tauMin,tauMin+1):
         #     learnedLambdas2[tau] = 0.25
-        #     learnedLambdas3[tau] = 0.25
-        # learnedLambdas2[0] = 0.5
-        # learnedLambdas3[0] = 0.5
+        #     learnedLambdas3[tau] = args.cve_prior
+        # learnedLambdas2[0] = 0.075
+        # learnedLambdas3[0] = args.cve_prior
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)

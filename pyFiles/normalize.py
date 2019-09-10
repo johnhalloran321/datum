@@ -350,6 +350,10 @@ def chop30percent_rank(spectrum):
 def chop30percent(spectrum):
     spectrum.remove_peaks_below_fraction(0.30)
 
+def tightSequestNormalize(spectrum):
+    spectrum.sqrt()
+    spectrum.region_normalize(10, 0, 2000, 0.05, precursor_tol = 1.5)
+
 def strictSequestNormalize(spectrum):
     spectrum.sqrt()
     spectrum.region_normalize(10, 0, 2000, 0.05, precursor_tol = 15.0)
