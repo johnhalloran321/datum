@@ -205,6 +205,46 @@ def peptide_var_mod_offset_screen(p, mods = {}, ntermMods = {}, ctermMods = {},
 
     return b_offsets, y_offsets
 
+def peptide_benchmark_mod_offset_screen(p, mods = {}, ntermMods = {}, ctermMods = {},
+                                        var_mod_offsets = []):
+    """ Given (variable) mods, calculate what the offsets should occur for the b-/y-ions
+        p - peptide string
+        Note: the screen returns the offset for each b- and y-ion, traversing the peptide
+              from left to right.  For y-ions, includes mass(h2o)
+    """ 
+    boffset = 0.
+    yoffset = mass_h2o
+    b_offsets = []
+    y_offsets = []
+    # check n-/c-term amino acids for modifications
+    if var_mod_offsets[0] > 0.:
+        boffset = var_mod_offsets[0]
+    elif p[0] in ntermMods:
+        boffset = ntermMods[p[0]]
+
+    if var_mod_offsets[-1] > 0.:
+        yoffset = var_mod_offsets[-1]
+    elif p[-1] in ctermMods:
+        yoffset = ctermMods[p[-1]]
+
+    # reverse peptide sequence to calculate y-ion offset linearly, in reverse
+    for aaB,aaY,bo,yo  in zip(p[:-1], reversed(p[1:]), var_mod_offsets[:-1], reversed(var_mod_offsets[1:])):
+        if bo > 0.:
+            boffset += bo
+        elif aaB in mods:
+            boffset += mods[aaB]
+        if yo > 0.:
+            offset += yo
+        elif aaY in mods:
+            yoffset += mods[aaY]
+        b_offsets.append(boffset)
+        y_offsets.append(yoffset)
+    
+    # reverse y-ions offsets back to proper order
+    y_offsets.reverse()
+
+    return b_offsets, y_offsets
+
 
 def by_sepTauShift(ntm, ctm, charge, b_offsets, y_offsets, 
                    lastBin = 1999, tauCard = 75,bin_width = 1.):

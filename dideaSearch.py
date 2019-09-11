@@ -44,13 +44,21 @@ from pyFiles.shard_spectra import (load_spectra,
                                    candidate_spectra_generator,
                                    candidate_spectra_memeffic_generator,
                                    candidate_binarydb_spectra_generator)
-from pyFiles.peptide_db import PeptideDB
+from pyFiles.peptide_db import PeptideDB, BenchmarkPeptideDB
 
 def didea_load_database(args, varMods, ntermVarMods, ctermVarMods):
     """ 
     """
     t = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'targets.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
     d = PeptideDB(load_digested_peptides_var_mods(os.path.join(args.digest_dir, 'decoys.bin'), args.max_length, varMods, ntermVarMods, ctermVarMods))
+
+    return t,d
+
+def load_benchmark_database(args, varMods, ntermVarMods, ctermVarMods):
+    """ 
+    """
+    t = BenchmarkPeptideDB(args.digest_dir, target_db = True)
+    d = BenchmarkPeptideDB(args.digest_dir, target_db = False)
 
     return t,d
 
@@ -116,21 +124,18 @@ class dideaPSM(object):
         return len(self.peptide)
 
     def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, useCve = True,
-                      mods = {}, ntermMods = {}, ctermMods = {},
-                      varMods = {}, varNtermMods = {}, varCtermMods = {}, varModSequence = [], 
+                      b_offsets = [], y_offsets = [],
                       bin_width = 1., tau_card = 75):
         if useCve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
                                                                                         self.charge,bins,num_bins, lambdas2, lambdas3, 
-                                                                                        mods, ntermMods, ctermMods, 
-                                                                                        varMods, varNtermMods, varCtermMods,
-                                                                                        varModSequence, bin_width, tau_card)
+                                                                                        b_offsets, y_offsets,
+                                                                                        bin_width, tau_card)
         else:
             (foregroundScore,backgroundScore) = genVeBinBuffer(Peptide(self.peptide),
                                                                self.charge,bins,num_bins, lambdas2, lambdas3, 
-                                                               mods, ntermMods, ctermMods, 
-                                                               varMods, varNtermMods, varCtermMods,
-                                                               varModSequence, bin_width)
+                                                               b_offsets, y_offsets,
+                                                               bin_width)
         self.score = foregroundScore - backgroundScore
         self.foreground_score = foregroundScore
         self.background_score = backgroundScore
@@ -237,6 +242,17 @@ def parseInputOptions():
     help_cve_prior = '<float> - Uniform prior weight on CVE shifts.  Default = 0.25'
     searchParamsGroup.add_argument('--cve-prior', type = float, action = 'store', 
                                    default = 0.25, help = help_cve_prior)
+    help_benchmark_mode = '<T|F> - Run a benchmark test using a predigested target-decoy database.'
+    searchParamsGroup.add_argument('--benchmark-mode', type = str, action = 'store', 
+                                   default = 'false', help = help_benchmark_mode)
+    searchParamsGroup.add_argument('--ppm', action = 'store_true',
+                        default = False)
+    searchParamsGroup.add_argument('--mods-spec', type = str, action = 'store',
+                             default = 'C+57.02146')
+    searchParamsGroup.add_argument('--cterm-peptide-mods-spec', type = str, action = 'store',
+                             default = '')
+    searchParamsGroup.add_argument('--nterm-peptide-mods-spec', type = str, action = 'store',
+                             default = '')
     ############## Cluster usage parameters
     clusterUsageGroup = parser.add_argument_group('clusterUsageGroup', 'Cluster data generation options.')
     help_num_cluster_jobs = '<integer> - the number of jobs to run in parallel. Default=1.'
@@ -258,8 +274,6 @@ def parseInputOptions():
     help_merge_cluster_results = '<T|F> - merge dripSearch cluster results collected in local directory log.  Default = False'
     clusterUsageGroup.add_argument('--merge-cluster-results', type = str, action = 'store', 
                                    default = 'False', help = help_merge_cluster_results)
-    parser.add_argument('--ppm', action = 'store_true',
-                        default = False)
     ######### encoding options
     parser.add_argument('--normalize', dest = "normalize", type = str,
                         help = "Name of the spectrum preprocessing pipeline.", 
@@ -273,7 +287,6 @@ def parseInputOptions():
                         type = str, help = 'Ch2 learned spectra-shift weights', default = "riptideLearnedCh2Lambdas.txt")
     parser.add_argument('--learned-lambdas-ch3', action = 'store', dest = 'learned_lambdas_ch3',
                         type = str, help = 'Ch3 learned spectra-shift weights', default = "riptideLearnedCh3Lambdas.txt")
-
     # output file options
     oFileGroup = parser.add_argument_group('oFileGroup', 'Output file options')
     oFileGroup.add_argument('--output', type = str,
@@ -295,6 +308,7 @@ def process_args(args):
     # set true or false strings to booleans
     args.high_res_ms2 = check_arg_trueFalse(args.high_res_ms2)
     args.cve = check_arg_trueFalse(args.cve)
+    args.benchmark_mode = check_arg_trueFalse(args.benchmark_mode)
     args.cluster_mode = check_arg_trueFalse(args.cluster_mode)
     args.write_cluster_scripts = check_arg_trueFalse(args.write_cluster_scripts)
     args.merge_cluster_results = check_arg_trueFalse(args.merge_cluster_results)
@@ -327,28 +341,6 @@ def process_args(args):
     else:
         args.digest_dir = os.path.abspath(args.digest_dir)
 
-    # load digest options used to digest the fasta file
-    ddo = pickle.load(open(os.path.join(args.digest_dir, 'options.pickle')))
-    # set parameters to those used by digest
-    args.max_length = ddo.max_length
-    args.max_mass = ddo.max_mass
-    args.min_length = ddo.min_length
-    args.monoisotopic_precursor = ddo.monoisotopic_precursor
-    args.mods_spec = ddo.mods_spec
-    args.cterm_peptide_mods_spec = ddo.cterm_peptide_mods_spec
-    args.nterm_peptide_mods_spec = ddo.nterm_peptide_mods_spec
-    args.max_mods = ddo.max_mods
-    args.min_mods = ddo.min_mods
-    args.decoys = ddo.decoys
-    args.decoy_format = ddo.decoy_format
-    args.keep_terminal_aminos = ddo.keep_terminal_aminos
-    args.seed = ddo.seed
-    args.enzyme = ddo.enzyme
-    args.custom_enzyme = ddo.custom_enzyme
-    args.missed_cleavages = ddo.missed_cleavages
-    args.digestion = ddo.digestion
-    args.peptide_buffer = ddo.peptide_buffer
-
     # create obervation directories
 
     # check precursor mass type
@@ -362,6 +354,29 @@ def process_args(args):
     if args.num_threads > mp.cpu_count():
         args.num_threads = mp.cpu_count()
         # args.num_threads = max(mp.cpu_count()-1,1)
+    
+    if not args.benchmark_mode:
+        # load digest options used to digest the fasta file
+        ddo = pickle.load(open(os.path.join(args.digest_dir, 'options.pickle')))
+        # set parameters to those used by digest
+        args.max_length = ddo.max_length
+        args.max_mass = ddo.max_mass
+        args.min_length = ddo.min_length
+        args.monoisotopic_precursor = ddo.monoisotopic_precursor
+        args.mods_spec = ddo.mods_spec
+        args.cterm_peptide_mods_spec = ddo.cterm_peptide_mods_spec
+        args.nterm_peptide_mods_spec = ddo.nterm_peptide_mods_spec
+        args.max_mods = ddo.max_mods
+        args.min_mods = ddo.min_mods
+        args.decoys = ddo.decoys
+        args.decoy_format = ddo.decoy_format
+        args.keep_terminal_aminos = ddo.keep_terminal_aminos
+        args.seed = ddo.seed
+        args.enzyme = ddo.enzyme
+        args.custom_enzyme = ddo.custom_enzyme
+        args.missed_cleavages = ddo.missed_cleavages
+        args.digestion = ddo.digestion
+        args.peptide_buffer = ddo.peptide_buffer
 
 def load_lambdas(filename, tauMin = -37, tauMax = 37):
     with open(filename) as inputf:
@@ -740,8 +755,7 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
     
 
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
-                                            mods = {}, ntermMods = {}, ctermMods = {},
-                                            varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
+                                            b_offsets, y_offsets,
                                             bin_width = 1., tauCard = 75):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
@@ -749,16 +763,10 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     lastBin = num_bins-1
     tauMin = (tauCard - 1 ) / 2
     (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic')
-    if varMods or ntermVarMods or ctermVarMods:
-        b_offsets, y_offsets = peptide_var_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods, 
-                                                             varMods, ntermVarMods, ctermVarMods,varModSequence)
-    else:
-        b_offsets, y_offsets = peptide_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods)
-
     sB, sY = by_tauShift(ntm, ctm, 2, b_offsets, y_offsets, 
                          lastBin, tauCard, bin_width)
     # vectors containing sets of charged ions among a b- and y-ion pair, 
-    # necessary when marginalizing over charge in the Diea model
+    # necessary when marginalizing over charge in the Didea model
     bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, b_offsets, y_offsets, 
                                 lastBin, tauCard, bin_width)
 
@@ -875,8 +883,7 @@ def logGenVe(theta, s):
     return np.log(genVe(theta,s))
 
 def genVeBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
-                   mods = {}, ntermMods = {}, ctermMods = {},
-                   varMods = {}, ntermVarMods = {}, ctermVarMods = {}, varModSequence = [], 
+                   b_offsets, y_offsets, 
                    bin_width = 1.):
     """ For a generally defined (virtual evidence) emission function,
     calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
@@ -885,12 +892,6 @@ def genVeBinBuffer(peptide, charge, bins, num_bins, learnedLambdas2, learnedLamb
     lastBin = num_bins-1
     tauCard = 75
     (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic')
-    if varMods or ntermVarMods or ctermVarMods:
-        b_offsets, y_offsets = peptide_var_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods, 
-                                                             varMods, ntermVarMods, ctermVarMods,varModSequence)
-    else:
-        b_offsets, y_offsets = peptide_mod_offset_screen(peptide.seq, mods, ntermMods, ctermMods)
-
     sB, sY = by_tauShift(ntm, ctm, 2, b_offsets, y_offsets, 
                          lastBin, tauCard, bin_width)
     # vectors containing sets of charged ions among a b- and y-ion pair, 
@@ -1278,17 +1279,22 @@ def score_didea_spectra(args, data, ranges,
                 pepType = 1
                 if varMods or ntermVarMods or ctermVarMods:
                     varModSequence = tp[5][:len(t)]
-                    theoSpecKey = t + varModSequence
                 else:
                     varModSequence = ''.join(['0'] * len(t))
-                    theoSpecKey = t
 
+                # instantiate PSM object
                 curr_psm = dideaPSM(t, sid, 't', charge, 
                                     tp[3], tp[4], varModSequence, tp[2])
-                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
-                                       mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence, args.bin_width, tauCard)
+                # calculate mass offset vectors
+                if varMods or ntermVarMods or ctermVarMods:
+                    b_offsets, y_offsets = peptide_var_mod_offset_screen(t, mods, ntermMods, ctermMods, 
+                                                                         varMods, ntermVarMods, ctermVarMods,varModSequence)
+                else:
+                    b_offsets, y_offsets = peptide_mod_offset_screen(t, mods, ntermMods, ctermMods)
+                # run inference engine
+                curr_psm.dideaScorePSM(bins2, args.num_bins, learnedLambdas2, learnedLambdas3, args.cve,
+                                       b_offsets, y_offsets,
+                                       args.bin_width, tauCard)
                 charged_target_psms.append(curr_psm)
 
             for dp in decoy[(s.spectrum_id,charge)]:
@@ -1296,16 +1302,22 @@ def score_didea_spectra(args, data, ranges,
                 pepType = 2
                 if varMods or ntermVarMods or ctermVarMods:
                     varModSequence = dp[5][:len(d)]
-                    theoSpecKey = d + varModSequence
                 else:
                     varModSequence = ''.join(['0'] * len(d))
-                    theoSpecKey = d
+
+                # instantiate PSM object
                 curr_psm = dideaPSM(d, sid, 'd', charge, 
                                     dp[3], dp[4], varModSequence, dp[2])
+                # calculate mass offset vectors
+                if varMods or ntermVarMods or ctermVarMods:
+                    b_offsets, y_offsets = peptide_var_mod_offset_screen(d, mods, ntermMods, ctermMods, 
+                                                                         varMods, ntermVarMods, ctermVarMods,varModSequence)
+                else:
+                    b_offsets, y_offsets = peptide_mod_offset_screen(d, mods, ntermMods, ctermMods)
+                # run inference engine
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
-                                       mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence, args.bin_width, tauCard)
+                                       b_offsets, y_offsets,
+                                       args.bin_width, tauCard)
                 charged_decoy_psms.append(curr_psm)
 
         top_target = max(charged_target_psms,key = scoref)
@@ -1376,17 +1388,22 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                 pepType = 1
                 if varMods or ntermVarMods or ctermVarMods:
                     varModSequence = tp[5]
-                    theoSpecKey = t + varModSequence
                 else:
                     varModSequence = ''.join(['0'] * len(t))
-                    theoSpecKey = t
 
+                # instantiate PSM object
                 curr_psm = dideaPSM(t, sid, 't', charge, 
                                     tp[3], tp[4], varModSequence, tp[2])
+                # calculate mass offset vectors
+                if varMods or ntermVarMods or ctermVarMods:
+                    b_offsets, y_offsets = peptide_var_mod_offset_screen(t, mods, ntermMods, ctermMods, 
+                                                                         varMods, ntermVarMods, ctermVarMods,varModSequence)
+                else:
+                    b_offsets, y_offsets = peptide_mod_offset_screen(t, mods, ntermMods, ctermMods)
+                # run inference engine
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
-                                       mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods, 
-                                       varModSequence, args.bin_width, tauCard)
+                                       b_offsets, y_offsets,
+                                       args.bin_width, tauCard)
                 charged_target_psms.append(curr_psm)
 
             for dp in (decoys.filter(m - mass_h, args.precursor_window, args.ppm)):
@@ -1394,16 +1411,22 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
                 pepType = 2
                 if varMods or ntermVarMods or ctermVarMods:
                     varModSequence = dp[5]
-                    theoSpecKey = d + varModSequence
                 else:
                     varModSequence = ''.join(['0'] * len(d))
-                    theoSpecKey = d
+
+                # instantiate PSM object
                 curr_psm = dideaPSM(d, sid, 'd', charge, 
                                     dp[3], dp[4], varModSequence, dp[2])
+                # calculate mass offset vectors
+                if varMods or ntermVarMods or ctermVarMods:
+                    b_offsets, y_offsets = peptide_var_mod_offset_screen(d, mods, ntermMods, ctermMods, 
+                                                                         varMods, ntermVarMods, ctermVarMods,varModSequence)
+                else:
+                    b_offsets, y_offsets = peptide_mod_offset_screen(d, mods, ntermMods, ctermMods)
+                # run inference engine
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
-                                       mods, ntermMods, ctermMods,
-                                       varMods, ntermVarMods, ctermVarMods,
-                                       varModSequence, args.bin_width, tauCard)
+                                       b_offsets, y_offsets,
+                                       args.bin_width, tauCard)
                 charged_decoy_psms.append(curr_psm)
 
         if charged_target_psms:
@@ -1418,7 +1441,7 @@ def score_didea_spectra_incore(args, spec, targets, decoys,
         top_psms.append((sid, top_target, top_decoy))
     return top_psms
 
-def runDidea_inCore(args):    
+def runDidea_incore(args):    
     """ Run Didea on a single thread
     """
     tauMin = (args.tau_card - 1 ) / 2
@@ -1605,7 +1628,7 @@ def runDidea_multithread(options):
                             mods, nterm_mods, cterm_mods,
                             var_mods, nterm_var_mods, cterm_var_mods)
 
-def runDidea_multithread_inCore(options):
+def runDidea_multithread_incore(options):
     """ Run Didea on a multiple threads
     """
     tauMin = (options.tau_card - 1 ) / 2
@@ -1699,23 +1722,273 @@ def runDidea_multithread_inCore(options):
                             mods, nterm_mods, cterm_mods,
                             var_mods, nterm_var_mods, cterm_var_mods)
 
+def score_didea_spectra_benchmark(args, spec, targets, decoys,
+                                  ranges,preprocess, learnedLambdas2, learnedLambdas3,
+                                  mods, ntermMods, ctermMods,
+                                  varMods, ntermVarMods, ctermVarMods):
+    """Score the spectra
+    """
+    scoref = lambda r: r.score
+    top_psms = []
+    nb = args.num_bins
+
+    # Load the pickled representation of this shard's data
+    # prune multiples
+    visited_spectra = set([])
+    spectra = []
+    for s in spec:
+        if s.spectrum_id not in visited_spectra:
+            spectra.append(s)
+            visited_spectra.add(s.spectrum_id)
+        
+    nb = args.num_bins
+
+    lastBin = nb - 1
+    tauCard = args.tau_card
+    # calculate tau-radius around bin indices
+    rMin = -tauCard
+    rMax = lastBin + tauCard
+
+    bins2 = np.empty( (nb + 2 * tauCard) )
+    validcharges = args.charges
+
+    for s in spectra:
+        preprocess(s)
+        # Generate the spectrum observations.
+        bins = histogram_spectra(s, ranges, max)
+        bins[0] = 0.0
+        bins[-1] = 0.0
+
+        for i in range(rMin, rMax):
+            a = bins[min(max(i,0), lastBin)]
+            bins2[i+tauCard] = a
+
+        sid = s.spectrum_id
+
+        charged_target_psms = []
+        charged_decoy_psms = []
+
+        for charge, m in s.charge_lines:
+            if charge not in validcharges:
+                continue
+            # score PSMs
+            # serialized data from digest database:
+            #    peptide[0] = peptide mass (float)
+            #    peptide[1] = peptide string
+            #    peptide[2] = variable modification mass offset screen
+            for tp in (targets.filter(m - mass_h, args.precursor_window, args.ppm)):
+                t = tp[1]
+                var_mod_offsets = tp[2]
+                # instantiate PSM object
+                curr_psm = dideaPSM(t, sid, 't', charge, 
+                                    '-', '-', ''.join(['0'*len(t)]), 'id1')
+                # calculate mass offset vectors
+                b_offsets, y_offsets = peptide_var_mod_offset_screen(t, mods, ntermMods, ctermMods, 
+                                                                     var_mod_offsets)
+                # run inference engine
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
+                                       b_offsets, y_offsets,
+                                       args.bin_width, tauCard)
+                charged_target_psms.append(curr_psm)
+
+            for dp in (decoys.filter(m - mass_h, args.precursor_window, args.ppm)):
+                d = dp[1]
+                var_mod_offsets = dp[2]
+                # instantiate PSM object
+                curr_psm = dideaPSM(d, sid, 'd', charge, 
+                                    '-', '-', ''.join(['0'*len(d)]), 'id1')
+                # calculate mass offset vectors
+                b_offsets, y_offsets = peptide_var_mod_offset_screen(d, mods, ntermMods, ctermMods, 
+                                                                     var_mod_offsets)
+                # run inference engine
+                curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
+                                       b_offsets, y_offsets,
+                                       args.bin_width, tauCard)
+                charged_decoy_psms.append(curr_psm)
+
+        if charged_target_psms:
+            top_target = max(charged_target_psms,key = scoref)
+        else:
+            top_target = []
+        if charged_decoy_psms:
+            top_decoy = max(charged_decoy_psms,key = scoref)
+        else:
+            top_decoy = []
+
+        top_psms.append((sid, top_target, top_decoy))
+    return top_psms
+
+def runDidea_benchmark(args):    
+    """ Run Didea on a single thread
+    """
+    tauMin = (args.tau_card - 1 ) / 2
+
+    # parse modifications
+    mods, var_mods = parse_var_mods(args.mods_spec, True)
+    nterm_mods, nterm_var_mods = parse_var_mods(args.nterm_peptide_mods_spec, False)
+    cterm_mods, cterm_var_mods = parse_var_mods(args.cterm_peptide_mods_spec, False)
+
+    # PeptideDB instances, where
+    #    peptide[0] = peptide mass (float)
+    #    peptide[1] = peptide string
+    #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
+    #    peptide[3] = nterm_flanking (character)
+    #    peptide[4] = cterm_flanking (character)
+    #    peptide[5] = binary string deoting variable modifications
+    targets, decoys = load_benchmark_database(args, var_mods, nterm_var_mods, cterm_var_mods)
+
+    # Load spectra
+    spectra, _, _, validcharges = load_spectra(args.spectra,
+                                               args.charges)
+    # set global variable to parsed/all encountered charges
+    args.charges = validcharges
+
+    preprocess = pipeline(args.normalize)
+
+    # check whether high- or low-res mode
+    if args.high_res_ms2:
+        if args.bin_width < 1.:
+            args.num_bins = int(round(max_mz / args.bin_width))
+        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        for tau in range(-tauMin,tauMin + 1):
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+        learnedLambdas2[0] = args.cve_prior
+        learnedLambdas3[0] = args.cve_prior
+    else:
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
+    print args.num_bins, args.bin_width
+
+    ranges = simple_uniform_binwidth(0.0, args.num_bins,
+                                     bin_width = args.bin_width)
+
+    scored_psms = []
+    ################################ load target and decoy databases using didea_load_database, score accoringly
+    scored_psms = score_didea_spectra_benchmark(args, spectra, targets, decoys,
+                                                ranges, preprocess, learnedLambdas2, learnedLambdas3,
+                                                mods, nterm_mods, cterm_mods,
+                                                var_mods, nterm_var_mods, cterm_var_mods)
+    scored_psms.sort(key = lambda r: r[0])
+    write_dideaSearch_ident(args.output+ '.txt', scored_psms,
+                            mods, nterm_mods, cterm_mods,
+                            var_mods, nterm_var_mods, cterm_var_mods)
+
+def runDidea_multithread_benchmark(options):
+    """ Run Didea on a multiple threads
+    """
+    tauMin = (options.tau_card - 1 ) / 2
+    # parse modifications
+    mods, var_mods = parse_var_mods(options.mods_spec, True)
+    nterm_mods, nterm_var_mods = parse_var_mods(options.nterm_peptide_mods_spec, False)
+    cterm_mods, cterm_var_mods = parse_var_mods(options.cterm_peptide_mods_spec, False)
+
+    # Load spectra
+    spectra, _, _, validcharges = load_spectra(args.spectra,
+                                               args.charges)
+    # set global variable to parsed/all encountered charges
+    options.charges = validcharges
+    # shuffle precursormasses
+    random.shuffle(spectra)
+    # calculate num spectra to score per thread
+    numThreads = min(mp.cpu_count() - 1, options.num_threads)
+    inc = int(len(spectra) / numThreads)
+    partitions = []
+    l = 0
+    r = inc
+    for i in range(numThreads-1):
+        partitions.append(spectra[l:r])
+        l += inc
+        r += inc
+    partitions.append(spectra[l:])
+
+    # PeptideDB instances, where
+    #    peptide[0] = peptide mass (float)
+    #    peptide[1] = peptide string
+    #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
+    #    peptide[3] = nterm_flanking (character)
+    #    peptide[4] = cterm_flanking (character)
+    #    peptide[5] = binary string deoting variable modifications
+    targets, decoys = load_benchmark_database(args, var_mods, nterm_var_mods, cterm_var_mods)
+    preprocess = pipeline(args.normalize)
+
+    # check whether high- or low-res mode
+    if args.high_res_ms2:
+        if args.bin_width < 1.:
+            args.num_bins = int(math.ceil(max_mz / args.bin_width))
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        learnedLambdas2[0] = 0.25
+        learnedLambdas3[0] = 0.25
+        for tau in range(1,tauMin+1):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        #     learnedLambdas2[-tau] = 0.25
+        #     learnedLambdas3[-tau] = 0.25
+            learnedLambdas2[tau] = learnedLambdas2[0] - 0.1*tau
+            learnedLambdas3[tau] = learnedLambdas3[0] - 0.1*tau
+            learnedLambdas2[-tau] = learnedLambdas2[tau]
+            learnedLambdas3[-tau] = learnedLambdas3[tau]
+        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # for tau in range(-tauMin,tauMin+1):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = args.cve_prior
+        # learnedLambdas2[0] = 0.075
+        # learnedLambdas3[0] = args.cve_prior
+    else:
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
+    print args.num_bins, args.bin_width
+
+    ranges = simple_uniform_binwidth(0.0, args.num_bins,
+                                     bin_width = args.bin_width)
+
+    pool = mp.Pool(processes = numThreads)
+    # perform map: distribute jobs to CPUs
+    results = [pool.apply_async(score_didea_spectra_benchmark,
+                                args=(args, partitions[i], targets, decoys,
+                                      ranges, preprocess, learnedLambdas2, learnedLambdas3,
+                                      mods, nterm_mods, cterm_mods,
+                                      var_mods, nterm_var_mods, cterm_var_mods )) for i in range(numThreads)]
+
+    pool.close()
+    pool.join() # wait for jobs to finish before continuing
+
+    scored_psms = []
+    for p in results:
+        scored_psms += p.get()
+
+    scored_psms.sort(key = lambda r: r[0])
+
+    write_dideaSearch_ident(options.output+ '.txt', scored_psms,
+                            mods, nterm_mods, cterm_mods,
+                            var_mods, nterm_var_mods, cterm_var_mods)
+
 if __name__ == '__main__':
     # read in options and process input arguments
     args = parseInputOptions()
     process_args(args)
 
-    if args.num_threads <= 1:
-        runDidea_inCore(args)
-    else:
-        runDidea_multithread_inCore(args)
+    if args.benchmark_mode:
+        if args.num_threads <= 1:
+            runDidea_benchmark(args)
+        else:
+            runDidea_multithread_benchmark(args)
+    else: # General database search
+        if args.num_threads <= 1:
+            runDidea_incore(args)
+        else:
+            runDidea_multithread_incore(args)
         
     if stdo:
         stdo.close()
     if stde:
         stde.close()
-
-    # # out-of-core searches, use when digested peptide database cannot be loaded into memory
-    # if args.num_threads <= 1:
-    #     runDidea(args)
-    # else:
-    #     runDidea_multithread(args)

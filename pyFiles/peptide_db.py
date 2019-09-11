@@ -21,6 +21,7 @@ from operator import itemgetter
 from peptide import Peptide
 import sys
 import csv
+import re
 
 class SimplePeptideDB(object):
     """A simpler version of a peptide database that takes the peptides.txt
@@ -85,14 +86,15 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
     """
     def __init__(self, filename, target_db = True):
         self.filename = filename
-        self.parse_targets = True
+        self.parse_targets = target_db
         self.peptides = [ ]
         self.masses = None
         self._parser(filename)
-
+    def __getitem__(self,key):
+        return self.peptides[key]
     def _parser(self, filename):
         records = [ ]
-        if self.parse_target:
+        if self.parse_targets:
             lookForKind = 'target'
         else:
             lookForKind = 'decoy'
@@ -102,7 +104,7 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
             csvfile.seek(0)
             for line in csv.reader(csvfile, dialect):
                 if line: 
-                    kind = line[3]
+                    kind = line[2]
                     if kind!=lookForKind:
                         continue
 
@@ -112,7 +114,7 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
                     var_offsets = []
                     ind = 0
                     wasMod = False
-                    for aa in pep_sequence[1:]:
+                    for aa in p[1:]:
                         if wasMod: # skip to next residue
                             wasMod = False
                             continue
@@ -121,8 +123,11 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
                             m = float(var_mod_offsets[ind][1:-1])
                             ind += 1
                             wasMod = True
-                        
                         var_offsets.append(m)
+                    # check last residue
+                    if not wasMod:
+                        var_offsets.append(0.0)
+
                     p = re.sub("-", "", p)
                     # deserialize: (0) mass (1) peptide sequence (2) var_mod_offsets
                     ma = float(line[1])
@@ -130,6 +135,7 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
                     records.append( (p, ma) )
 
             records.sort(key = lambda r: r[1])
+            print len(records)
         self.peptides, self.masses = zip(*records)
 
     def filter(self, precursor_mass, window = 3, ppm = False):
@@ -146,16 +152,15 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
             l = bisect_left(self.masses, precursor_mass - window)
             h = bisect_right(self.masses, precursor_mass + window, lo = l)
         else:
-            wl = float(window)*1e-6
-            l = bisect(self.masses, precursor_mass * (1.0 - wl))
-            h = bisect_right(self.masses, precursor_mass * (1.0 + wl), lo = l)
+            wl = window*1e-6
+            l = bisect_left(self.masses, precursor_mass / (1.0 + float(window)*0.000001))
+            h = bisect_right(self.masses, precursor_mass / (1.0 - float(window)*0.000001), lo = l)
         return self.peptides[l:h]
 
 class PeptideDB(object):
     def __init__(self, peptides):
         self.masses =  [ p[0] for p in peptides ]
         self.peptides = [ p for p in peptides ]
-
     def filter(self, precursor_mass, window = 3, ppm = False):
         """Return the sequence of the peptides that are within 'window'
         Daltons of the mass given: i.e., where the peptide's mass is within
