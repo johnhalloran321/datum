@@ -23,14 +23,14 @@ import random
 import re
 
 # General emission function, need not be normalized
-from pyFiles.dideaEncoding import genVe
+from pyFiles.dideaEncoding import genVe, cruxRound
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide #, amino_acids_to_indices
 from pyFiles.normalize import pipeline
-from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz
+from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz, mass_proton
 from digest import (check_arg_trueFalse,
                     parse_var_mods, load_digested_peptides_var_mods)
-from pyFiles.dideaEncoding import (histogram_spectra, simple_uniform_binwidth,
+from pyFiles.dideaEncoding import (histogram_spectra, simple_uniform_binwidth, bin_spectrum,
                                    round_op, 
                                    peptide_mod_offset_screen, peptide_var_mod_offset_screen,
                                    by_sepTauShift, by_tauShift)
@@ -125,12 +125,12 @@ class dideaPSM(object):
 
     def dideaScorePSM(self,bins,num_bins,lambdas2,lambdas3, useCve = True,
                       b_offsets = [], y_offsets = [],
-                      bin_width = 1., tau_card = 75):
+                      bin_width = 1., tau_card = 75, bin_offset = 0.4):
         if useCve:
             (foregroundScore,backgroundScore) = dideaMultiChargeBinBufferLearnedLambdas(Peptide(self.peptide),
                                                                                         self.charge,bins,num_bins, lambdas2, lambdas3, 
                                                                                         b_offsets, y_offsets,
-                                                                                        bin_width, tau_card)
+                                                                                        bin_width, tau_card, bin_offset)
         else:
             (foregroundScore,backgroundScore) = genVeBinBuffer(Peptide(self.peptide),
                                                                self.charge,bins,num_bins, lambdas2, lambdas3, 
@@ -236,6 +236,9 @@ def parseInputOptions():
     help_bin_width = '<float> - The bin width of m/z values. Default=1.0.'
     searchParamsGroup.add_argument('--bin-width', type = float, action = 'store', 
                                    default = 1.0, help = help_bin_width)
+    help_bin_offset = '<float> - The bin width of m/z values. Default=0.0.'
+    searchParamsGroup.add_argument('--bin-offset', type = float, action = 'store', 
+                                   default = 0.0, help = help_bin_width)
     help_tau_card = '<integer> - Cardinality of the shift random variable. Default=75.'
     searchParamsGroup.add_argument('--tau-card', type = int, action = 'store', 
                                    default = 75, help = help_tau_card)
@@ -752,11 +755,9 @@ def byIonsTauShift_var_mods(peptide, charge, lastBin = 1999, tauCard = 75,
             cterm_fragments.append(round_op(y+yoffset, denom, tauCard, rMax))
     return (nterm_fragments,cterm_fragments)
 
-    
-
 def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, learnedLambdas2, learnedLambdas3, 
                                             b_offsets, y_offsets,
-                                            bin_width = 1., tauCard = 75):
+                                            bin_width = 1., tauCard = 75, bin_offset = 0.4):
     """ Calculate the posterior(\tau_0 = 0 | s, x), where \tau_0 
     the prologue shift variable, s is the observed spectrum, and x is the candidate peptide.
     """
@@ -764,17 +765,33 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     tauMin = (tauCard - 1 ) / 2
     (ntm, ctm) = peptide.ideal_fragment_masses('monoisotopic')
     sB, sY = by_tauShift(ntm, ctm, 2, b_offsets, y_offsets, 
-                         lastBin, tauCard, bin_width)
+                         lastBin, tauCard, bin_width, bin_offset)
     # vectors containing sets of charged ions among a b- and y-ion pair, 
     # necessary when marginalizing over charge in the Didea model
     bSeq, ySeq = by_sepTauShift(ntm, ctm, 3, b_offsets, y_offsets, 
-                                lastBin, tauCard, bin_width)
+                                lastBin, tauCard, bin_width, bin_offset)
 
     sB += sY # collapse b- and y- charge2 vectors together
 
     bSeq = np.array(bSeq).astype(int)
     ySeq = np.array(ySeq).astype(int)
     sB = np.array(sB).astype(int)
+
+    if peptide.seq=='ITNEHNYK':
+        print sB
+        print bins[sB-1]
+        print bins[sB]
+        print bins[sB+1]
+        for c in range(1,charge):
+            cf = float(c)
+            denom = cf * 1.0
+            for b, y, boffset, yoffset in zip(ntm[1:-1], ctm[1:-1], b_offsets, y_offsets):
+                print "%f, %f, %f, %f" % (b, boffset+cf*mass_proton, denom, (b+boffset+cf*mass_proton)/denom)
+                print "%f, %f, %f, %f" % (y, yoffset+cf*mass_proton, denom, (y+yoffset+cf*mass_proton)/denom)
+
+        # print "bseq:", bSeq
+        # print "yseq:", ySeq
+        # print "sB:", sB
 
     backgroundScore = 0.0
     cLogProb = math.log(2.0)
@@ -1699,7 +1716,8 @@ def runDidea_multithread_incore(options):
     print args.num_bins, args.bin_width
 
     ranges = simple_uniform_binwidth(0.0, args.num_bins,
-                                     bin_width = args.bin_width)
+                                     bin_width = args.bin_width, 
+                                     offset = args.bin_offset)
 
     pool = mp.Pool(processes = numThreads)
     # perform map: distribute jobs to CPUs
@@ -1755,7 +1773,10 @@ def score_didea_spectra_benchmark(args, spec, targets, decoys,
     for s in spectra:
         preprocess(s)
         # Generate the spectrum observations.
-        bins = histogram_spectra(s, ranges, max)
+        if cruxRound:
+            bins = bin_spectrum(s, ranges, args.bin_width, args.bin_offset)
+        else:
+            bins = histogram_spectra(s, ranges, max)
         bins[0] = 0.0
         bins[-1] = 0.0
 
@@ -1778,6 +1799,9 @@ def score_didea_spectra_benchmark(args, spec, targets, decoys,
             #    peptide[2] = variable modification mass offset screen
             for tp in (targets.filter(m - mass_h, args.precursor_window, args.ppm)):
                 t = tp[1]
+                if t=='ITNEHNYK':
+                    if sid == 3661:
+                        print t
                 var_mod_offsets = tp[2]
                 # instantiate PSM object
                 curr_psm = dideaPSM(t, sid, 't', charge, 
@@ -1788,7 +1812,7 @@ def score_didea_spectra_benchmark(args, spec, targets, decoys,
                 # run inference engine
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        b_offsets, y_offsets,
-                                       args.bin_width, tauCard)
+                                       args.bin_width, tauCard, args.bin_offset)
                 charged_target_psms.append(curr_psm)
 
             for dp in (decoys.filter(m - mass_h, args.precursor_window, args.ppm)):
@@ -1803,7 +1827,7 @@ def score_didea_spectra_benchmark(args, spec, targets, decoys,
                 # run inference engine
                 curr_psm.dideaScorePSM(bins2, args.num_bins,learnedLambdas2, learnedLambdas3, args.cve,
                                        b_offsets, y_offsets,
-                                       args.bin_width, tauCard)
+                                       args.bin_width, tauCard, args.bin_offset)
                 charged_decoy_psms.append(curr_psm)
 
         if charged_target_psms:
@@ -1831,10 +1855,7 @@ def runDidea_benchmark(args):
     # PeptideDB instances, where
     #    peptide[0] = peptide mass (float)
     #    peptide[1] = peptide string
-    #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
-    #    peptide[3] = nterm_flanking (character)
-    #    peptide[4] = cterm_flanking (character)
-    #    peptide[5] = binary string deoting variable modifications
+    #    peptide[2] = variable modification offsets
     targets, decoys = load_benchmark_database(args, var_mods, nterm_var_mods, cterm_var_mods)
 
     # Load spectra
@@ -1849,13 +1870,13 @@ def runDidea_benchmark(args):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(round(max_mz / args.bin_width))
-        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        for tau in range(-tauMin,tauMin + 1):
-            learnedLambdas2[tau] = 0.25
-            learnedLambdas3[tau] = 0.25
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # for tau in range(-tauMin,tauMin + 1):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
         learnedLambdas2[0] = args.cve_prior
         learnedLambdas3[0] = args.cve_prior
     else:
@@ -1865,7 +1886,8 @@ def runDidea_benchmark(args):
     print args.num_bins, args.bin_width
 
     ranges = simple_uniform_binwidth(0.0, args.num_bins,
-                                     bin_width = args.bin_width)
+                                     bin_width = args.bin_width, 
+                                     offset = args.bin_offset)
 
     scored_psms = []
     ################################ load target and decoy databases using didea_load_database, score accoringly
@@ -1878,24 +1900,30 @@ def runDidea_benchmark(args):
                             mods, nterm_mods, cterm_mods,
                             var_mods, nterm_var_mods, cterm_var_mods)
 
-def runDidea_multithread_benchmark(options):
+def runDidea_multithread_benchmark(args):
     """ Run Didea on a multiple threads
     """
-    tauMin = (options.tau_card - 1 ) / 2
+    tauMin = (args.tau_card - 1 ) / 2
     # parse modifications
-    mods, var_mods = parse_var_mods(options.mods_spec, True)
-    nterm_mods, nterm_var_mods = parse_var_mods(options.nterm_peptide_mods_spec, False)
-    cterm_mods, cterm_var_mods = parse_var_mods(options.cterm_peptide_mods_spec, False)
+    mods, var_mods = parse_var_mods(args.mods_spec, True)
+    nterm_mods, nterm_var_mods = parse_var_mods(args.nterm_peptide_mods_spec, False)
+    cterm_mods, cterm_var_mods = parse_var_mods(args.cterm_peptide_mods_spec, False)
+
+    # PeptideDB instances, where
+    #    peptide[0] = peptide mass (float)
+    #    peptide[1] = peptide string
+    #    peptide[2] = variable modification offsets
+    targets, decoys = load_benchmark_database(args, var_mods, nterm_var_mods, cterm_var_mods)
 
     # Load spectra
     spectra, _, _, validcharges = load_spectra(args.spectra,
                                                args.charges)
     # set global variable to parsed/all encountered charges
-    options.charges = validcharges
+    args.charges = validcharges
     # shuffle precursormasses
     random.shuffle(spectra)
     # calculate num spectra to score per thread
-    numThreads = min(mp.cpu_count() - 1, options.num_threads)
+    numThreads = min(mp.cpu_count() - 1, args.num_threads)
     inc = int(len(spectra) / numThreads)
     partitions = []
     l = 0
@@ -1906,35 +1934,27 @@ def runDidea_multithread_benchmark(options):
         r += inc
     partitions.append(spectra[l:])
 
-    # PeptideDB instances, where
-    #    peptide[0] = peptide mass (float)
-    #    peptide[1] = peptide string
-    #    peptide[2] = protein name (mapped to an integer for the protein value encountered in the file)
-    #    peptide[3] = nterm_flanking (character)
-    #    peptide[4] = cterm_flanking (character)
-    #    peptide[5] = binary string deoting variable modifications
-    targets, decoys = load_benchmark_database(args, var_mods, nterm_var_mods, cterm_var_mods)
     preprocess = pipeline(args.normalize)
 
     # check whether high- or low-res mode
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(math.ceil(max_mz / args.bin_width))
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        learnedLambdas2[0] = 0.25
-        learnedLambdas3[0] = 0.25
-        for tau in range(1,tauMin+1):
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # learnedLambdas2[0] = 0.25
+        # learnedLambdas3[0] = 0.25
+        # for tau in range(1,tauMin+1):
         #     learnedLambdas2[tau] = 0.25
         #     learnedLambdas3[tau] = 0.25
         #     learnedLambdas2[-tau] = 0.25
         #     learnedLambdas3[-tau] = 0.25
-            learnedLambdas2[tau] = learnedLambdas2[0] - 0.1*tau
-            learnedLambdas3[tau] = learnedLambdas3[0] - 0.1*tau
-            learnedLambdas2[-tau] = learnedLambdas2[tau]
-            learnedLambdas3[-tau] = learnedLambdas3[tau]
-        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        #     # learnedLambdas2[tau] = learnedLambdas2[0] - 0.1*tau
+        #     # learnedLambdas3[tau] = learnedLambdas3[0] - 0.1*tau
+        #     # learnedLambdas2[-tau] = learnedLambdas2[tau]
+        #     # learnedLambdas3[-tau] = learnedLambdas3[tau]
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
         # learnedLambdas2 = {}
         # learnedLambdas3 = {}
         # for tau in range(-tauMin,tauMin+1):
@@ -1949,7 +1969,8 @@ def runDidea_multithread_benchmark(options):
     print args.num_bins, args.bin_width
 
     ranges = simple_uniform_binwidth(0.0, args.num_bins,
-                                     bin_width = args.bin_width)
+                                     bin_width = args.bin_width, 
+                                     offset = args.bin_offset)
 
     pool = mp.Pool(processes = numThreads)
     # perform map: distribute jobs to CPUs
@@ -1968,7 +1989,7 @@ def runDidea_multithread_benchmark(options):
 
     scored_psms.sort(key = lambda r: r[0])
 
-    write_dideaSearch_ident(options.output+ '.txt', scored_psms,
+    write_dideaSearch_ident(args.output+ '.txt', scored_psms,
                             mods, nterm_mods, cterm_mods,
                             var_mods, nterm_var_mods, cterm_var_mods)
 

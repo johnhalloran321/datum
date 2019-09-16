@@ -19,6 +19,36 @@ Amino acid tables are taken from [1].
 
 import random
 import string
+from constants import mono_elements, avg_elements
+
+# __amino_acid_mass = { 'A' :  mono_elements['C']*3 + mono_elements['H']*5 + mono_elements['N'] + mono_elements['O'],
+#                       'C' :  mono_elements['C']*3 + mono_elements['H']*5 + mono_elements['N'] + mono_elements['O'] + mono_elements['S'] + 57.021464,
+#                       'D' :  mono_elements['C']*4 + mono_elements['H']*5 + mono_elements['N'] + mono_elements['O']*3,
+#                       'E' :  mono_elements['C']*5 + mono_elements['H']*7 + mono_elements['N'] + mono_elements['O']*3,
+#                       'F' :  mono_elements['C']*9 + mono_elements['H']*9 + mono_elements['N'] + mono_elements['O'],
+#                       'G' :  mono_elements['C']*2 + mono_elements['H']*3 + mono_elements['N'] + mono_elements['O'],
+#                       'H' :  mono_elements['C']*6 + mono_elements['H']*7 + mono_elements['N']*3 + mono_elements['O'],
+#                       'I' :  mono_elements['C']*6 + mono_elements['H']*11 + mono_elements['N'] + mono_elements['O'],
+#                       'J' :  mono_elements['C']*6 + mono_elements['H']*11 + mono_elements['N'] + mono_elements['O'],
+#                       'K' :  mono_elements['C']*6 + mono_elements['H']*12 + mono_elements['N']*2 + mono_elements['O'],
+#                       'L' :  mono_elements['C']*6 + mono_elements['H']*11 + mono_elements['N'] + mono_elements['O'],
+#                       'M' :  mono_elements['C']*5 + mono_elements['H']*9 + mono_elements['N'] + mono_elements['O'] + mono_elements['S'],
+#                       'N' :  mono_elements['C']*4 + mono_elements['H']*6 + mono_elements['N']*2 + mono_elements['O']*2,
+#                       'O' :  mono_elements['C']*12 + mono_elements['H']*21 + mono_elements['N']*3 + mono_elements['O']*3,
+#                       'P' :  mono_elements['C']*5 + mono_elements['H']*7 + mono_elements['N'] + mono_elements['O'],
+#                       'Q' :  mono_elements['C']*5 + mono_elements['H']*8 + mono_elements['N']*2 + mono_elements['O']*2,
+#                       'R' :  mono_elements['C']*6 + mono_elements['H']*12 + mono_elements['N']*4 + mono_elements['O'],
+#                       'S' :  mono_elements['C']*3 + mono_elements['H']*5 + mono_elements['N'] + mono_elements['O']*2,
+#                       'T' :  mono_elements['C']*4 + mono_elements['H']*7 + mono_elements['N'] + mono_elements['O']*2,
+#                       'U' :  mono_elements['C']*3 + mono_elements['H']*7 + mono_elements['N'] + mono_elements['O']*2 + mono_elements['Se'],
+#                       'V' :  mono_elements['C']*5 + mono_elements['H']*9 + mono_elements['N'] + mono_elements['O'],
+#                       'W' :  mono_elements['C']*11 + mono_elements['H']*10 + mono_elements['N']*2 + mono_elements['O'],
+#                       'Y' :  mono_elements['C']*9 + mono_elements['H']*9 + mono_elements['N'] + mono_elements['O'] * 2,
+#                       'B' : float('inf'),
+#                       'X' : float('inf'),
+#                       'Z' : float('inf'),
+#                       '*' : float('inf')
+# }
 
 # Monoisotopic: elements are assumed to be the most common isotopes.
 __amino_acid_mass = { 'A' : 71.03711,
