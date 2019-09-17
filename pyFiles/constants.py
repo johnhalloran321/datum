@@ -27,8 +27,11 @@ avg_elements = { 'H' : 1.00794,
 
 
 mass_h = 1.00782503207
-# mass_proton = 1.00727646677
-mass_proton = 1.00782503207
+cruxRound = True
+if cruxRound:
+    mass_proton = 1.00727646677
+else:
+    mass_proton = 1.00782503207
 mass_neutron = 1.00866491600
 
 mass_h_mono = 1.0078246

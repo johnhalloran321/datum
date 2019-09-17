@@ -6,10 +6,9 @@
 # Command line parsing utilities.
 
 import math
-from constants import mass_h, mass_h2o, max_mz, mass_proton
+from constants import mass_h, mass_h2o, max_mz, mass_proton, cruxRound
 from peptide import Peptide
 
-cruxRound = True
 
 def round_op_nobuffer(mz, bin_width = 1.0005079, offset = 0.0):
     return int(mz / bin_width + 1.0 - offset)

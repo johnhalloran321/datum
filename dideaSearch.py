@@ -23,11 +23,11 @@ import random
 import re
 
 # General emission function, need not be normalized
-from pyFiles.dideaEncoding import genVe, cruxRound
+from pyFiles.dideaEncoding import genVe
 from pyFiles.spectrum import MS2Spectrum, MS2Iterator
 from pyFiles.peptide import Peptide #, amino_acids_to_indices
 from pyFiles.normalize import pipeline
-from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz, mass_proton
+from pyFiles.constants import allPeps, mass_h, mass_h2o, max_mz, mass_proton, cruxRound
 from digest import (check_arg_trueFalse,
                     parse_var_mods, load_digested_peptides_var_mods)
 from pyFiles.dideaEncoding import (histogram_spectra, simple_uniform_binwidth, bin_spectrum,
@@ -1940,21 +1940,23 @@ def runDidea_multithread_benchmark(args):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(math.ceil(max_mz / args.bin_width))
-        # learnedLambdas2 = {}
-        # learnedLambdas3 = {}
-        # learnedLambdas2[0] = 0.25
-        # learnedLambdas3[0] = 0.25
-        # for tau in range(1,tauMin+1):
-        #     learnedLambdas2[tau] = 0.25
-        #     learnedLambdas3[tau] = 0.25
-        #     learnedLambdas2[-tau] = 0.25
-        #     learnedLambdas3[-tau] = 0.25
+        learnedLambdas2 = {}
+        learnedLambdas3 = {}
+        learnedLambdas2[0] = 0.25
+        learnedLambdas3[0] = 0.25
+        for tau in range(1,tauMin+1):
+            learnedLambdas2[tau] = 0.25
+            learnedLambdas3[tau] = 0.25
+            learnedLambdas2[-tau] = 0.25
+            learnedLambdas3[-tau] = 0.25
         #     # learnedLambdas2[tau] = learnedLambdas2[0] - 0.1*tau
         #     # learnedLambdas3[tau] = learnedLambdas3[0] - 0.1*tau
         #     # learnedLambdas2[-tau] = learnedLambdas2[tau]
         #     # learnedLambdas3[-tau] = learnedLambdas3[tau]
-        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
+        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+
         # learnedLambdas2 = {}
         # learnedLambdas3 = {}
         # for tau in range(-tauMin,tauMin+1):
