@@ -19,9 +19,12 @@ __authors__ = [ 'John T. Halloran <jthalloran@ucdavis.edu>' ]
 from bisect import bisect_left, bisect_right
 from operator import itemgetter
 from peptide import Peptide
+
 import sys
 import csv
 import re
+import ctypes
+csv.field_size_limit(sys.maxsize)
 
 class SimplePeptideDB(object):
     """A simpler version of a peptide database that takes the peptides.txt
@@ -98,7 +101,7 @@ GVASM[15.9949]F 855.4363        target  gi|23497404|gb|AAN36948.1|,gi|124809178|
             lookForKind = 'target'
         else:
             lookForKind = 'decoy'
-        # first detect what is the used delimiter; crux switched from a space to a tab when shifting to 2.0
+        # first detect what is the used delimiter
         with open(filename, "r") as csvfile:
             dialect = csv.Sniffer().sniff(csvfile.read(), delimiters=' \t')
             csvfile.seek(0)

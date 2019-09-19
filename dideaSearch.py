@@ -777,7 +777,9 @@ def dideaMultiChargeBinBufferLearnedLambdas(peptide, charge, bins, num_bins, lea
     ySeq = np.array(ySeq).astype(int)
     sB = np.array(sB).astype(int)
 
-    if peptide.seq=='ITNEHNYK':
+    # if peptide.seq=='ITNEHNYK':
+    # if peptide.seq=='LVLHYCK':
+    if peptide.seq=='VEIHLPR':
         print sB
         print bins[sB-1]
         print bins[sB]
@@ -1877,8 +1879,8 @@ def runDidea_benchmark(args):
         # for tau in range(-tauMin,tauMin + 1):
         #     learnedLambdas2[tau] = 0.25
         #     learnedLambdas3[tau] = 0.25
-        learnedLambdas2[0] = args.cve_prior
-        learnedLambdas3[0] = args.cve_prior
+        # learnedLambdas2[0] = args.cve_prior
+        # learnedLambdas3[0] = args.cve_prior
     else:
         learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
         learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
@@ -1940,22 +1942,22 @@ def runDidea_multithread_benchmark(args):
     if args.high_res_ms2:
         if args.bin_width < 1.:
             args.num_bins = int(math.ceil(max_mz / args.bin_width))
-        learnedLambdas2 = {}
-        learnedLambdas3 = {}
-        learnedLambdas2[0] = 0.25
-        learnedLambdas3[0] = 0.25
-        for tau in range(1,tauMin+1):
-            learnedLambdas2[tau] = 0.25
-            learnedLambdas3[tau] = 0.25
-            learnedLambdas2[-tau] = 0.25
-            learnedLambdas3[-tau] = 0.25
+        # learnedLambdas2 = {}
+        # learnedLambdas3 = {}
+        # learnedLambdas2[0] = 0.25
+        # learnedLambdas3[0] = 0.25
+        # for tau in range(1,tauMin+1):
+        #     learnedLambdas2[tau] = 0.25
+        #     learnedLambdas3[tau] = 0.25
+        #     learnedLambdas2[-tau] = 0.25
+        #     learnedLambdas3[-tau] = 0.25
         #     # learnedLambdas2[tau] = learnedLambdas2[0] - 0.1*tau
         #     # learnedLambdas3[tau] = learnedLambdas3[0] - 0.1*tau
         #     # learnedLambdas2[-tau] = learnedLambdas2[tau]
         #     # learnedLambdas3[-tau] = learnedLambdas3[tau]
 
-        # learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
-        # learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
+        learnedLambdas2 = load_lambdas(args.learned_lambdas_ch2)
+        learnedLambdas3 = load_lambdas(args.learned_lambdas_ch3)
 
         # learnedLambdas2 = {}
         # learnedLambdas3 = {}
